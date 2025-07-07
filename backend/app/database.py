@@ -9,15 +9,14 @@ if settings.DATABASE_URL.startswith("sqlite"):
         settings.DATABASE_URL,
         connect_args={"check_same_thread": False}
     )
-elif settings.DATABASE_URL.startswith("mysql"):
-    # Production mode (PlanetScale)
+elif settings.DATABASE_URL.startswith("postgresql"):
+    # Production mode (Neon PostgreSQL)
     engine = create_engine(
         settings.DATABASE_URL,
         pool_pre_ping=True,
         pool_recycle=300,
         connect_args={
-            "charset": "utf8mb4",
-            "ssl_disabled": False
+            "sslmode": "require"
         }
     )
 else:

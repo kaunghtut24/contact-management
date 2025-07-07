@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Migration script to create MySQL schema for PlanetScale
-Run this after setting up your PlanetScale database
+Migration script to create PostgreSQL schema for Neon
+Run this after setting up your Neon database
 """
 
 import os
@@ -10,14 +10,14 @@ from sqlalchemy import create_engine, text
 from app.models import Base
 from app.config import settings
 
-def create_mysql_schema():
-    """Create tables in MySQL database"""
-    print("🚀 Creating MySQL schema for PlanetScale...")
-    
+def create_postgresql_schema():
+    """Create tables in PostgreSQL database"""
+    print("🚀 Creating PostgreSQL schema for Neon...")
+
     # Check if DATABASE_URL is set
     if not settings.DATABASE_URL or settings.DATABASE_URL.startswith("sqlite"):
-        print("❌ Please set DATABASE_URL to your PlanetScale connection string")
-        print("Example: mysql://username:password@host:port/database_name")
+        print("❌ Please set DATABASE_URL to your Neon connection string")
+        print("Example: postgresql://username:password@host:port/database_name")
         sys.exit(1)
     
     try:
@@ -27,8 +27,7 @@ def create_mysql_schema():
             pool_pre_ping=True,
             pool_recycle=300,
             connect_args={
-                "charset": "utf8mb4",
-                "ssl_disabled": False
+                "sslmode": "require"
             }
         )
         
@@ -43,11 +42,11 @@ def create_mysql_schema():
         
         # Verify tables
         with engine.connect() as conn:
-            result = conn.execute(text("SHOW TABLES"))
+            result = conn.execute(text("SELECT tablename FROM pg_tables WHERE schemaname = 'public'"))
             tables = [row[0] for row in result]
             print(f"✅ Created tables: {', '.join(tables)}")
-        
-        print("\n🎉 MySQL schema setup complete!")
+
+        print("\n🎉 PostgreSQL schema setup complete!")
         print("You can now deploy your application to Vercel")
         
     except Exception as e:
@@ -55,36 +54,36 @@ def create_mysql_schema():
         sys.exit(1)
 
 def migrate_data_from_sqlite():
-    """Optional: Migrate existing data from SQLite to MySQL"""
+    """Optional: Migrate existing data from SQLite to PostgreSQL"""
     sqlite_path = "contact_db.sqlite"
     
     if not os.path.exists(sqlite_path):
         print("ℹ️  No SQLite database found, skipping data migration")
         return
     
-    print("📦 Migrating data from SQLite to MySQL...")
-    
+    print("📦 Migrating data from SQLite to PostgreSQL...")
+
     # This is a basic example - you might need to customize based on your data
     try:
         from sqlalchemy.orm import sessionmaker
-        
+
         # SQLite connection
         sqlite_engine = create_engine(f"sqlite:///{sqlite_path}")
         SqliteSession = sessionmaker(bind=sqlite_engine)
-        
-        # MySQL connection
-        mysql_engine = create_engine(settings.DATABASE_URL)
-        MysqlSession = sessionmaker(bind=mysql_engine)
+
+        # PostgreSQL connection
+        postgresql_engine = create_engine(settings.DATABASE_URL)
+        PostgresqlSession = sessionmaker(bind=postgresql_engine)
         
         # Import your models
         from app.models import Contact
         
-        with SqliteSession() as sqlite_session, MysqlSession() as mysql_session:
+        with SqliteSession() as sqlite_session, PostgresqlSession() as postgresql_session:
             # Get all contacts from SQLite
             contacts = sqlite_session.query(Contact).all()
             
             for contact in contacts:
-                # Create new contact in MySQL
+                # Create new contact in PostgreSQL
                 new_contact = Contact(
                     name=contact.name,
                     designation=contact.designation,
@@ -96,9 +95,9 @@ def migrate_data_from_sqlite():
                     address=contact.address,
                     notes=contact.notes
                 )
-                mysql_session.add(new_contact)
-            
-            mysql_session.commit()
+                postgresql_session.add(new_contact)
+
+            postgresql_session.commit()
             print(f"✅ Migrated {len(contacts)} contacts")
     
     except Exception as e:
@@ -106,10 +105,10 @@ def migrate_data_from_sqlite():
         print("You can manually export/import your data if needed")
 
 if __name__ == "__main__":
-    print("🗄️  PlanetScale Migration Tool")
+    print("🗄️  Neon PostgreSQL Migration Tool")
     print("=" * 40)
-    
-    create_mysql_schema()
+
+    create_postgresql_schema()
     
     # Ask user if they want to migrate data
     if input("\nMigrate existing SQLite data? (y/N): ").lower() == 'y':
