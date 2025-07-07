@@ -11,13 +11,5 @@
       "src": "/(.*)",
       "dest": "app/main.py"
     }
-  ],
-  "env": {
-    "PYTHONPATH": "/var/task"
-  },
-  "functions": {
-    "app/main.py": {
-      "maxDuration": 30
-    }
-  }
+  ]
 }
