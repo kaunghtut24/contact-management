@@ -1,0 +1,31 @@
+BEGIN:VCARD
+VERSION:3.0
+FN:Dr. Sarah Wilson
+N:Wilson;Sarah;Dr.;;
+ORG:City Hospital
+TITLE:Chief of Surgery
+EMAIL:sarah.wilson@cityhospital.com
+TEL:+1-555-DOCTOR
+ADR:;;123 Medical Center;Health City;HC;12345;USA
+NOTE:VIP client, emergency contact available 24/7
+END:VCARD
+
+BEGIN:VCARD
+VERSION:3.0
+FN:Mike Johnson
+N:Johnson;Mike;;;
+EMAIL:mike.johnson@gmail.com
+TEL:+1-555-HOME-123
+ADR:;;456 Residential St;Hometown;HT;67890;USA
+NOTE:Personal friend, college buddy
+END:VCARD
+
+BEGIN:VCARD
+VERSION:3.0
+FN:Tech Support
+N:Support;Tech;;;
+ORG:IT Solutions Inc
+EMAIL:support@itsolutions.com
+TEL:+1-555-TECH-HELP
+NOTE:Technical support provider
+END:VCARD

@@ -1,0 +1,20 @@
+ID,Name,Email,Phone,Address,Category,Notes
+1,ICC Office,,910797545092,,Work,Fax: 910797545080
+2,ICC Ahmedabad,icc_amd@iccworld.com,9108049052999,G/12,Work,Fax: 9102652310277
+3,ICC Baroda/Vadodara,icc_baroda@iccworld.com,91044281724042823441328172963,"ICC HOUSE, LynWood Lane",Personal,
+4,ICC Chennai,icc_chennai@iccworld.com,9102065006402,A/9,Uncategorized,
+5,ICC Pune,icc_pune@iccworld.com,9104222546313,"29, India",Uncategorized,
+6,ICC Coimbatore,icc_cjb@iccworld.com,9111261731141126180429,,Uncategorized,
+7,ICC Delhi,icc_delhi@iccworld.com,9104242258215,"291, 2nd Floor",Work,
+8,ICC Erode,icc_erode@iccworld.com,,,Uncategorized,
+9,ICC Hyderabad,icc_hyd@iccworld.com,91014124193042419305,,Uncategorized,
+10,ICC Jaipur,icc_jaipur@iccworld.com,9104324235166,30 Feet Road,Uncategorized,
+11,ICC Karur,icc_karur@iccworld.com,91033224040082280931922817386,,Work,Fax: 910332829044
+12,ICC Kolkata,icc_kolkata@iccworld.com,9105222272118,147 Kumaran Road,Uncategorized,
+13,ICC Tirupur,icc_tirupur@iccworld.com,9105123012016,"G/33, Near Heer Palace",Uncategorized,
+14,ICC Kanpur,icc_kanpur@iccworld.com,,,Uncategorized,
+15,John Smith,john.smith@acme.com,+1-555-123-4567,"123 Business St, New York, NY, 10001, USA",Work,Organization: Acme Corporation; Title: Software Engineer; Important client contact
+16,Jane Doe,jane.doe@gmail.com,+1-555-987-6543,"456 Home Ave, Los Angeles, CA, 90210, USA",Personal,Personal friend from college
+17,Dr. Sarah Wilson,sarah.wilson@cityhospital.com,+1-555-DOCTOR,"123 Medical Center, Health City, HC, 12345, USA",Work,Organization: City Hospital; Title: Chief of Surgery; VIP client
+18,Mike Johnson,mike.johnson@gmail.com,+1-555-HOME-123,"456 Residential St, Hometown, HT, 67890, USA",Personal,Personal friend
+19,Tech Support,support@itsolutions.com,+1-555-TECH-HELP,,Work,Organization: IT Solutions Inc; Technical support provider
