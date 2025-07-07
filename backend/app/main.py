@@ -2,6 +2,7 @@ from fastapi import FastAPI, HTTPException, UploadFile, File, Depends, Query
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
+from sqlalchemy import text
 from typing import List
 import io
 import csv
@@ -64,6 +65,48 @@ def get_db():
 @app.get("/health")
 def health_check():
     return {"status": "healthy", "message": "Contact Management System API is running"}
+
+@app.get("/db-info")
+def database_info():
+    """Check which database is being used"""
+    from app.config import settings
+    from app.database import engine
+
+    db_url = settings.DATABASE_URL
+    db_type = "Unknown"
+
+    if db_url.startswith("sqlite"):
+        db_type = "SQLite (Local)"
+    elif db_url.startswith("postgresql"):
+        db_type = "PostgreSQL (Neon)"
+    elif db_url.startswith("mysql"):
+        db_type = "MySQL"
+
+    try:
+        # Test connection
+        with engine.connect() as conn:
+            if db_url.startswith("sqlite"):
+                result = conn.execute(text("SELECT name FROM sqlite_master WHERE type='table'"))
+            elif db_url.startswith("postgresql"):
+                result = conn.execute(text("SELECT tablename FROM pg_tables WHERE schemaname = 'public'"))
+            else:
+                result = conn.execute(text("SELECT 1"))
+
+            tables = [row[0] for row in result] if db_url.startswith(("sqlite", "postgresql")) else ["connection_test"]
+
+            return {
+                "database_type": db_type,
+                "database_url": db_url[:50] + "..." if len(db_url) > 50 else db_url,
+                "connection_status": "Connected",
+                "tables": tables
+            }
+    except Exception as e:
+        return {
+            "database_type": db_type,
+            "database_url": db_url[:50] + "..." if len(db_url) > 50 else db_url,
+            "connection_status": "Failed",
+            "error": str(e)
+        }
 
 # Get all contacts with search and filter
 @app.get("/contacts", response_model=List[ContactOut])
