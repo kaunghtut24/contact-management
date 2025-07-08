@@ -19,6 +19,18 @@ except OSError:
     print('✅ SpaCy model downloaded')
 "
 
+# Check OCR availability
+echo "🔍 Checking OCR dependencies..."
+python -c "
+try:
+    import pytesseract
+    from PIL import Image
+    print('✅ OCR dependencies available')
+except ImportError as e:
+    print(f'⚠️  OCR dependencies missing: {e}')
+    print('Image parsing will be disabled')
+"
+
 # Create necessary directories
 mkdir -p uploads
 mkdir -p logs

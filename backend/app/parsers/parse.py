@@ -1,12 +1,19 @@
 import fitz  # PyMuPDF
 from docx import Document
-import pytesseract
-from PIL import Image
 import io
 import re
 import logging
 from .nlp_parser import extract_contacts_nlp
 from .vcard_parser import parse_vcard
+
+# Optional OCR imports - gracefully handle missing dependencies
+try:
+    import pytesseract
+    from PIL import Image
+    OCR_AVAILABLE = True
+except ImportError:
+    OCR_AVAILABLE = False
+    print("Warning: OCR dependencies (pytesseract, PIL) not available. Image parsing will be disabled.")
 
 logger = logging.getLogger(__name__)
 
@@ -37,9 +44,17 @@ def parse_vcf(file_content):
         return []
 
 def parse_image(file_content):
-    image = Image.open(io.BytesIO(file_content))
-    text = pytesseract.image_to_string(image)
-    return extract_contacts(text)
+    if not OCR_AVAILABLE:
+        logger.warning("OCR not available. Cannot parse image files.")
+        return []
+
+    try:
+        image = Image.open(io.BytesIO(file_content))
+        text = pytesseract.image_to_string(image)
+        return extract_contacts(text)
+    except Exception as e:
+        logger.error(f"Error parsing image: {e}")
+        return []
 
 def extract_contacts_icc_format(text):
     """Specialized parser for ICC contact data format"""
