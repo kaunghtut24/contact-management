@@ -1,36 +1,37 @@
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import NullPool
 from app.config import settings
 
-# Create engine with production-ready settings
-if settings.DATABASE_URL.startswith("sqlite"):
-    # Development mode
+engine = None
+
+# Production environment (Vercel with Neon - PostgreSQL)
+# Use NullPool for serverless compatibility, as each function invocation might get a new container.
+if settings.DATABASE_URL.startswith("postgresql"):
     engine = create_engine(
         settings.DATABASE_URL,
-        connect_args={"check_same_thread": False}
+        poolclass=NullPool,
+        pool_pre_ping=True
     )
-elif settings.DATABASE_URL.startswith("mysql"):
-    # Production mode (PlanetScale)
+# Development environment (local with SQLite)
+elif settings.DATABASE_URL.startswith("sqlite"):
     engine = create_engine(
         settings.DATABASE_URL,
-        pool_pre_ping=True,
-        pool_recycle=300,
-        connect_args={
-            "charset": "utf8mb4",
-            "ssl_disabled": False
-        }
+        connect_args={"check_same_thread": False}  # Required for SQLite
     )
+# Fallback for other database types if needed
 else:
-    # Other databases (PostgreSQL, etc.)
-    engine = create_engine(
-        settings.DATABASE_URL,
-        pool_pre_ping=True,
-        pool_recycle=300
-    )
+    engine = create_engine(settings.DATABASE_URL)
+
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 def get_db():
+    """
+    Dependency that provides a database session to the API endpoints.
+    This function ensures that the database session is always closed
+    after the request has been handled, even if an error occurs.
+    """
     db = SessionLocal()
     try:
         yield db
