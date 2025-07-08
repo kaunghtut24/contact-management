@@ -89,7 +89,7 @@ except ImportError as e:
 app = FastAPI(title="Contact Management API", version="1.0.0")
 
 # CORS Configuration
-ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173,http://localhost:3000,http://localhost:5174").split(",")
+ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "https://contact-management-six-alpha.vercel.app,http://localhost:5173,http://localhost:3000,http://localhost:5174").split(",")
 
 app.add_middleware(
     CORSMiddleware,
