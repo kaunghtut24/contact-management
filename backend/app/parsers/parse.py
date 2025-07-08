@@ -11,10 +11,19 @@ from ..utils.nlp import categorize_contact
 try:
     import pytesseract
     from PIL import Image
-    OCR_AVAILABLE = True
-except ImportError:
+
+    # Test if tesseract is actually available
+    try:
+        pytesseract.get_tesseract_version()
+        OCR_AVAILABLE = True
+        print("✅ Tesseract OCR is available")
+    except Exception as e:
+        OCR_AVAILABLE = False
+        print(f"⚠️  Tesseract OCR not available: {e}")
+
+except ImportError as e:
     OCR_AVAILABLE = False
-    print("Warning: OCR dependencies (pytesseract, PIL) not available. Image parsing will be disabled.")
+    print(f"Warning: OCR dependencies not available: {e}. Image parsing will be disabled.")
 
 logger = logging.getLogger(__name__)
 
