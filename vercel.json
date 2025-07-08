@@ -8,14 +8,7 @@
         "maxLambdaSize": "15mb",
         "runtime": "python3.9",
         "pipInstallCommand": "pip install -r requirements-minimal.txt"
-      },
-      "excludeFiles": [
-        "backend/data/**",
-        "backend/logs/**",
-        "backend/__pycache__/**",
-        "backend/venv/**",
-        "backend/contact_db.sqlite"
-      ]
+      }
     },
     {
       "src": "frontend/package.json",
