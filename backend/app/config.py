@@ -20,7 +20,7 @@ class Settings:
     PORT: int = int(os.getenv("PORT", "8000"))
     
     # CORS
-    ALLOWED_ORIGINS: List[str] = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173").split(",")
+    ALLOWED_ORIGINS: List[str] = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173,https://contact-management-six-alpha.vercel.app,https://contact-management-vi36.vercel.app").split(",")
     
     # File Upload
     MAX_FILE_SIZE: int = int(os.getenv("MAX_FILE_SIZE", "10485760"))  # 10MB

@@ -30,8 +30,7 @@ from app.logging_config import setup_logging
 # Setup logging
 logger = setup_logging()
 
-# Initialize DB tables
-Base.metadata.create_all(bind=engine)
+
 
 app = FastAPI()
 
