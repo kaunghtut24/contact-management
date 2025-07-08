@@ -4,7 +4,11 @@
     {
       "src": "backend/main.py",
       "use": "@vercel/python",
-      "config": { "maxLambdaSize": "15mb", "runtime": "python3.9" }
+      "config": {
+        "maxLambdaSize": "15mb",
+        "runtime": "python3.9",
+        "pipInstallCommand": "pip install -r requirements-minimal.txt"
+      }
     },
     {
       "src": "frontend/package.json",
