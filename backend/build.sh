@@ -16,7 +16,13 @@ pip install -r requirements.txt
 
 # Download SpaCy English model
 echo "🧠 Downloading SpaCy English model..."
-python -m spacy download en_core_web_sm
+python -m spacy download en_core_web_sm --user
+
+# Alternative installation method if the first fails
+if ! python -c "import spacy; spacy.load('en_core_web_sm')" 2>/dev/null; then
+    echo "🔄 Trying alternative SpaCy installation..."
+    pip install https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.7.1/en_core_web_sm-3.7.1-py3-none-any.whl
+fi
 
 # Verify SpaCy model installation
 echo "✅ Verifying SpaCy model installation..."

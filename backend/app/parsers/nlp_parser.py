@@ -24,10 +24,19 @@ class NLPContactParser:
             # Try to load English model
             try:
                 self.nlp = spacy.load("en_core_web_sm")
-                logger.info("SpaCy English model loaded successfully")
+                logger.info("✅ SpaCy English model loaded successfully")
             except OSError:
-                logger.warning("SpaCy English model not found, using blank model")
-                self.nlp = spacy.blank("en")
+                logger.warning("⚠️  SpaCy English model not found, trying to download...")
+                try:
+                    # Try to download the model at runtime
+                    import subprocess
+                    subprocess.run(["python", "-m", "spacy", "download", "en_core_web_sm"], check=True)
+                    self.nlp = spacy.load("en_core_web_sm")
+                    logger.info("✅ SpaCy English model downloaded and loaded successfully")
+                except Exception as e:
+                    logger.warning(f"❌ Failed to download SpaCy model: {e}")
+                    logger.warning("🔄 Using blank model as fallback")
+                    self.nlp = spacy.blank("en")
         except ImportError:
             logger.warning("SpaCy not available, using regex-based parsing")
             self.nlp = None
