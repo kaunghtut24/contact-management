@@ -72,8 +72,22 @@ function ContactsList() {
     }
   };
 
-  const handleExport = () => {
-    window.location.href = 'http://localhost:8000/export';
+  const handleExport = async () => {
+    try {
+      const response = await contactsApi.export();
+      const blob = response.data;
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.style.display = 'none';
+      a.href = url;
+      a.download = 'all_contacts.csv';
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Error exporting contacts:', error);
+      alert('Error exporting contacts: ' + (error.response?.data?.detail || error.message));
+    }
   };
 
   // Selection handling functions
@@ -106,25 +120,16 @@ function ContactsList() {
 
     if (window.confirm(`Are you sure you want to delete ${selectedContacts.size} selected contacts?`)) {
       try {
-        const response = await fetch('http://localhost:8000/contacts/batch', {
-          method: 'DELETE',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(Array.from(selectedContacts)),
-        });
+        const contactIds = Array.from(selectedContacts);
+        const response = await contactsApi.batchDelete(contactIds);
 
-        if (response.ok) {
-          const result = await response.json();
-          alert(`Successfully deleted ${result.deleted_count} contacts`);
-          setSelectedContacts(new Set());
-          setSelectAll(false);
-          fetchContacts();
-        } else {
-          alert('Error deleting contacts');
-        }
+        alert(`Successfully deleted ${response.data.deleted_count} contacts`);
+        setSelectedContacts(new Set());
+        setSelectAll(false);
+        fetchContacts();
       } catch (error) {
-        alert('Error deleting contacts: ' + error.message);
+        console.error('Error deleting contacts:', error);
+        alert('Error deleting contacts: ' + (error.response?.data?.detail || error.message));
       }
     }
   };
@@ -136,29 +141,21 @@ function ContactsList() {
     }
 
     try {
-      const response = await fetch('http://localhost:8000/export/batch', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(Array.from(selectedContacts)),
-      });
+      const contactIds = Array.from(selectedContacts);
+      const response = await contactsApi.batchExport(contactIds);
 
-      if (response.ok) {
-        const blob = await response.blob();
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.style.display = 'none';
-        a.href = url;
-        a.download = `selected_contacts_${selectedContacts.size}.csv`;
-        document.body.appendChild(a);
-        a.click();
-        window.URL.revokeObjectURL(url);
-      } else {
-        alert('Error exporting contacts');
-      }
+      const blob = response.data;
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.style.display = 'none';
+      a.href = url;
+      a.download = `selected_contacts_${selectedContacts.size}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
     } catch (error) {
-      alert('Error exporting contacts: ' + error.message);
+      console.error('Error exporting contacts:', error);
+      alert('Error exporting contacts: ' + (error.response?.data?.detail || error.message));
     }
   };
 

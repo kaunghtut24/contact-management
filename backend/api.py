@@ -89,7 +89,7 @@ except ImportError as e:
 app = FastAPI(title="Contact Management API", version="1.0.0")
 
 # CORS Configuration
-ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173").split(",")
+ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173,http://localhost:3000,http://localhost:5174").split(",")
 
 app.add_middleware(
     CORSMiddleware,
@@ -170,13 +170,37 @@ def update_contact(contact_id: int, contact_update: ContactUpdate, db: Session =
     db.refresh(contact)
     return contact
 
+# Batch delete contacts (must come before single delete route)
+@app.delete("/contacts/batch")
+def batch_delete_contacts(contact_ids: List[int], db: Session = Depends(get_db)):
+    """Delete multiple contacts by their IDs"""
+    deleted_count = 0
+    failed_ids = []
+
+    for contact_id in contact_ids:
+        db_contact = db.query(Contact).filter(Contact.id == contact_id).first()
+        if db_contact:
+            db.delete(db_contact)
+            deleted_count += 1
+        else:
+            failed_ids.append(contact_id)
+
+    db.commit()
+
+    return {
+        "message": f"Batch delete completed",
+        "deleted_count": deleted_count,
+        "failed_count": len(failed_ids),
+        "failed_ids": failed_ids
+    }
+
 # Delete contact
 @app.delete("/contacts/{contact_id}")
 def delete_contact(contact_id: int, db: Session = Depends(get_db)):
     contact = db.query(Contact).filter(Contact.id == contact_id).first()
     if not contact:
         raise HTTPException(status_code=404, detail="Contact not found")
-    
+
     db.delete(contact)
     db.commit()
     return {"message": "Contact deleted successfully"}
@@ -212,6 +236,43 @@ def export_contacts(db: Session = Depends(get_db)):
         io.BytesIO(output.getvalue().encode()),
         media_type="text/csv",
         headers={"Content-Disposition": "attachment; filename=contacts.csv"}
+    )
+
+# Batch export selected contacts
+@app.post("/export/batch")
+def batch_export_contacts(contact_ids: List[int], db: Session = Depends(get_db)):
+    """Export selected contacts to CSV"""
+    contacts = db.query(Contact).filter(Contact.id.in_(contact_ids)).all()
+
+    if not contacts:
+        raise HTTPException(status_code=404, detail="No contacts found with provided IDs")
+
+    output = StringIO()
+    writer = csv.writer(output)
+
+    # Write header
+    writer.writerow(['Name', 'Email', 'Phone', 'Company', 'Designation', 'Website', 'Address', 'Category', 'Notes'])
+
+    # Write data
+    for contact in contacts:
+        writer.writerow([
+            contact.name or '',
+            contact.email or '',
+            contact.phone or '',
+            contact.company or '',
+            contact.designation or '',
+            contact.website or '',
+            contact.address or '',
+            contact.category or '',
+            contact.notes or ''
+        ])
+
+    output.seek(0)
+
+    return StreamingResponse(
+        io.BytesIO(output.getvalue().encode()),
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename=selected_contacts_{len(contacts)}.csv"}
     )
 
 # Root endpoint

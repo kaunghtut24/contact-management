@@ -5,6 +5,7 @@ import re
 import logging
 from .nlp_parser import extract_contacts_nlp
 from .vcard_parser import parse_vcard
+from ..utils.nlp import categorize_contact
 
 # Optional OCR imports - gracefully handle missing dependencies
 try:
@@ -31,7 +32,92 @@ def parse_docx(file_content):
 
 def parse_txt(file_content):
     text = file_content.decode("utf-8")
+
+    # Check if this is structured data (tab-separated or CSV-like)
+    lines = text.strip().split('\n')
+    if len(lines) > 1:
+        # Check if first line looks like headers
+        first_line = lines[0].lower()
+        if any(header in first_line for header in ['name', 'email', 'phone', 'company', 'designation']):
+            # Detect delimiter
+            if '\t' in lines[0]:
+                return parse_structured_text(text, delimiter='\t')
+            elif ',' in lines[0] and lines[0].count(',') > 2:
+                return parse_structured_text(text, delimiter=',')
+
+    # Fallback to regular text parsing
     return extract_contacts(text)
+
+def parse_structured_text(text, delimiter='\t'):
+    """Parse structured text data (tab-separated or CSV-like)"""
+    lines = text.strip().split('\n')
+    if len(lines) < 2:
+        return []
+
+    # Parse header row
+    headers = [h.strip().lower() for h in lines[0].split(delimiter)]
+    contacts = []
+
+    # Create field mapping
+    field_mapping = {
+        'name': ['name', 'full name', 'contact name'],
+        'designation': ['designation', 'title', 'position', 'job title'],
+        'company': ['company', 'organization', 'org', 'business'],
+        'phone': ['phone', 'telephone', 'tel', 'mobile', 'cell'],
+        'email': ['email', 'e-mail', 'mail'],
+        'website': ['website', 'web', 'url', 'site'],
+        'category': ['category', 'type', 'classification'],
+        'address': ['address', 'location', 'addr'],
+        'notes': ['notes', 'note', 'comments', 'remarks', 'description']
+    }
+
+    # Find column indices for each field
+    column_map = {}
+    for field, possible_names in field_mapping.items():
+        for i, header in enumerate(headers):
+            if any(name in header for name in possible_names):
+                column_map[field] = i
+                break
+
+    # Parse data rows
+    for line_num, line in enumerate(lines[1:], 2):
+        if not line.strip():
+            continue
+
+        try:
+            values = line.split(delimiter)
+            contact = {
+                'name': '',
+                'designation': '',
+                'company': '',
+                'phone': '',
+                'email': '',
+                'website': '',
+                'category': 'Others',
+                'address': '',
+                'notes': ''
+            }
+
+            # Extract values based on column mapping
+            for field, col_index in column_map.items():
+                if col_index < len(values):
+                    value = values[col_index].strip()
+                    if value:
+                        contact[field] = value
+
+            # Apply intelligent categorization if category is not provided or is generic
+            if not contact['category'] or contact['category'].lower() in ['others', 'uncategorized', '']:
+                contact['category'] = categorize_contact(contact)
+
+            # Only add contact if it has at least a name or email
+            if contact['name'] or contact['email']:
+                contacts.append(contact)
+
+        except Exception as e:
+            logger.warning(f"Error parsing line {line_num}: {e}")
+            continue
+
+    return contacts
 
 def parse_vcf(file_content):
     """Parse vCard (.vcf) files"""
