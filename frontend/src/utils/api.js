@@ -13,6 +13,8 @@ const api = axios.create({
 // Request interceptor
 api.interceptors.request.use(
   (config) => {
+    // Debug: Log all API requests
+    console.log('🚀 API Request:', config.method?.toUpperCase(), config.url, 'Base URL:', config.baseURL);
     // Add any auth headers here if needed
     return config;
   },
