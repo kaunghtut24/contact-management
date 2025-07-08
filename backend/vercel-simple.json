@@ -2,18 +2,18 @@
   "version": 2,
   "builds": [
     {
-      "src": "index.py",
+      "src": "test_simple.py",
       "use": "@vercel/python"
     }
   ],
   "routes": [
     {
       "src": "/(.*)",
-      "dest": "index.py"
+      "dest": "test_simple.py"
     }
   ],
   "functions": {
-    "index.py": {
+    "test_simple.py": {
       "maxDuration": 30
     }
   }
