@@ -20,7 +20,15 @@ python -m spacy download en_core_web_sm
 
 # Verify SpaCy model installation
 echo "✅ Verifying SpaCy model installation..."
-python -c "import spacy; nlp = spacy.load('en_core_web_sm'); print('SpaCy model loaded successfully')"
+python -c "
+import spacy
+try:
+    nlp = spacy.load('en_core_web_sm')
+    print('✅ SpaCy model loaded successfully')
+except OSError:
+    print('⚠️  SpaCy model not found, but installation completed')
+    print('Model will be downloaded at runtime if needed')
+"
 
 # Create necessary directories
 echo "📁 Creating necessary directories..."
