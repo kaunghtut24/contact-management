@@ -22,12 +22,25 @@ except OSError:
 # Check OCR availability
 echo "🔍 Checking OCR dependencies..."
 python -c "
+import os
 try:
     import pytesseract
     from PIL import Image
-    print('✅ OCR dependencies available')
+
+    # Configure tesseract path
+    tesseract_path = os.getenv('TESSERACT_PATH', '/usr/bin/tesseract')
+    pytesseract.pytesseract.tesseract_cmd = tesseract_path
+    print(f'🔧 Tesseract path: {tesseract_path}')
+
+    # Test tesseract
+    version = pytesseract.get_tesseract_version()
+    print(f'✅ Tesseract OCR available: {version}')
+
 except ImportError as e:
     print(f'⚠️  OCR dependencies missing: {e}')
+    print('Image parsing will be disabled')
+except Exception as e:
+    print(f'⚠️  Tesseract configuration error: {e}')
     print('Image parsing will be disabled')
 "
 

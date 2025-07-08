@@ -11,15 +11,23 @@ from ..utils.nlp import categorize_contact
 try:
     import pytesseract
     from PIL import Image
+    import os
+
+    # Configure tesseract path from environment variable
+    tesseract_path = os.getenv('TESSERACT_PATH', '/usr/bin/tesseract')
+    if tesseract_path:
+        pytesseract.pytesseract.tesseract_cmd = tesseract_path
+        print(f"🔧 Configured Tesseract path: {tesseract_path}")
 
     # Test if tesseract is actually available
     try:
         pytesseract.get_tesseract_version()
         OCR_AVAILABLE = True
-        print("✅ Tesseract OCR is available")
+        print("✅ Tesseract OCR is available and configured")
     except Exception as e:
         OCR_AVAILABLE = False
         print(f"⚠️  Tesseract OCR not available: {e}")
+        print(f"Tried path: {tesseract_path}")
 
 except ImportError as e:
     OCR_AVAILABLE = False
