@@ -165,12 +165,17 @@ class ContentIntelligenceService:
         # Add Groq provider
         groq_key = os.getenv("GROQ_API_KEY")
         logger.debug(f"Groq API key present: {bool(groq_key)}")
+        logger.debug(f"Groq API key length: {len(groq_key) if groq_key else 0}")
 
-        if groq_key and LLM_AVAILABLE:
+        if groq_key and groq_key.strip() and LLM_AVAILABLE:
             try:
+                # Validate API key format
+                if not groq_key.startswith("gsk_"):
+                    logger.warning(f"⚠️ Groq API key doesn't start with 'gsk_', may be invalid")
+
                 self.llm_clients["groq"] = {
                     "client": openai.OpenAI(
-                        api_key=groq_key,
+                        api_key=groq_key.strip(),
                         base_url="https://api.groq.com/openai/v1"
                     ),
                     "model": os.getenv("GROQ_MODEL", "mixtral-8x7b-32768"),
@@ -179,9 +184,36 @@ class ContentIntelligenceService:
                 self.providers["groq"] = self.llm_clients["groq"]  # Alias
                 if not self.default_provider:
                     self.default_provider = "groq"
-                logger.info("✅ Groq client initialized")
+                logger.info("✅ Groq client initialized successfully")
+
+                # Test the client with a simple call
+                try:
+                    test_response = self.llm_clients["groq"]["client"].chat.completions.create(
+                        model=self.llm_clients["groq"]["model"],
+                        messages=[{"role": "user", "content": "Hello"}],
+                        max_tokens=10
+                    )
+                    if test_response and test_response.choices:
+                        logger.info("✅ Groq client test call successful")
+                    else:
+                        logger.warning("⚠️ Groq client test call returned empty response")
+                except Exception as test_e:
+                    logger.error(f"❌ Groq client test call failed: {test_e}")
+                    # Remove the client if test fails
+                    del self.llm_clients["groq"]
+                    del self.providers["groq"]
+                    if self.default_provider == "groq":
+                        self.default_provider = None
+
             except Exception as e:
                 logger.error(f"❌ Failed to initialize Groq client: {e}")
+        else:
+            if not groq_key:
+                logger.debug("🔑 No GROQ_API_KEY found in environment")
+            elif not groq_key.strip():
+                logger.warning("⚠️ GROQ_API_KEY is empty")
+            elif not LLM_AVAILABLE:
+                logger.warning("⚠️ OpenAI library not available for Groq client")
 
         if not self.llm_clients:
             logger.warning("⚠️ No LLM clients configured - using SpaCy fallback only")
@@ -332,21 +364,41 @@ class ContentIntelligenceService:
             logger.debug(f"LLM prompt preview: {prompt[:300]}...")
 
             logger.info(f"🤖 Calling {client_name} ({client_config['model']}) for contact extraction")
+            logger.debug(f"🤖 API Base URL: {getattr(client_config['client'], 'base_url', 'default')}")
 
-            response = await asyncio.to_thread(
-                client_config["client"].chat.completions.create,
-                model=client_config["model"],
-                messages=[{"role": "user", "content": prompt}],
-                max_tokens=2000,
-                temperature=0.1
-            )
+            try:
+                response = await asyncio.to_thread(
+                    client_config["client"].chat.completions.create,
+                    model=client_config["model"],
+                    messages=[{"role": "user", "content": prompt}],
+                    max_tokens=2000,
+                    temperature=0.1
+                )
+                logger.info(f"✅ API call successful to {client_name}")
+            except Exception as api_error:
+                logger.error(f"❌ API call failed to {client_name}: {api_error}")
+                raise
 
-            result_text = response.choices[0].message.content
+            # Enhanced response validation
+            if not response or not response.choices:
+                logger.error(f"LLM ({client_name}) returned invalid response structure")
+                raise ValueError("Invalid response structure from LLM")
+
+            choice = response.choices[0]
+            if not choice or not choice.message:
+                logger.error(f"LLM ({client_name}) returned invalid choice structure")
+                raise ValueError("Invalid choice structure from LLM")
+
+            result_text = choice.message.content
             logger.info(f"📝 LLM response received, length: {len(result_text) if result_text else 0}")
+            logger.debug(f"📝 Raw LLM response: {repr(result_text)}")
 
             # Check for empty or None response
             if not result_text or not result_text.strip():
-                logger.warning(f"LLM ({client_name}) returned empty response")
+                logger.warning(f"LLM ({client_name}) returned empty/null response")
+                logger.warning(f"Response object: {response}")
+                logger.warning(f"Choice object: {choice}")
+                logger.warning(f"Message object: {choice.message}")
                 raise ValueError("Empty response from LLM")
 
             result_text = result_text.strip()
@@ -404,6 +456,40 @@ class ContentIntelligenceService:
         except Exception as e:
             logger.error(f"LLM extraction failed with {client_name}: {e}")
             logger.debug(f"LLM prompt was: {prompt[:200]}...")
+
+            # Try a simpler prompt as fallback
+            try:
+                logger.info(f"🔄 Trying simplified prompt with {client_name}")
+                simple_prompt = f"""Extract contact info as JSON array:
+
+Text: {text[:500]}
+
+Return: [{{"name":"","email":"","phone":"","company":"","designation":"","website":"","address":"","categories":["Others"]}}]"""
+
+                simple_response = await asyncio.to_thread(
+                    client_config["client"].chat.completions.create,
+                    model=client_config["model"],
+                    messages=[{"role": "user", "content": simple_prompt}],
+                    max_tokens=1000,
+                    temperature=0.0
+                )
+
+                simple_result = simple_response.choices[0].message.content
+                if simple_result and simple_result.strip():
+                    logger.info(f"✅ Simplified prompt worked, response length: {len(simple_result)}")
+                    try:
+                        contacts = json.loads(simple_result.strip())
+                        return {
+                            "contacts": contacts,
+                            "method": f"llm_{client_name}_simple",
+                            "model": client_config["model"]
+                        }
+                    except json.JSONDecodeError:
+                        logger.warning(f"Simplified prompt also returned invalid JSON")
+
+            except Exception as simple_e:
+                logger.error(f"Simplified prompt also failed: {simple_e}")
+
             return {"contacts": [], "method": "llm_failed", "error": str(e), "client": client_name}
     
     def _create_enhanced_prompt(self, text: str, file_type: str, spacy_results: Dict) -> str:
@@ -425,24 +511,26 @@ SpaCy Analysis Context:
 - Phones found: {phones}
 """
         
-        return f"""Extract contact information and return ONLY valid JSON array.
+        return f"""You are a contact extraction expert. Extract contact information from the text and return a valid JSON array.
 
 {context}
 
-STRICT RULES:
-1. Return ONLY JSON array - no other text, explanations, or formatting
-2. Each contact needs: name, designation, company, email, phone, website, address, categories
-3. Use "" for empty fields
-4. Categories from: {self.business_categories}
-5. Categories must be array: ["category1", "category2"]
+REQUIREMENTS:
+- Return ONLY a JSON array, nothing else
+- Each contact must have: name, designation, company, email, phone, website, address, categories
+- Use empty string "" for missing fields
+- Categories must be from: {self.business_categories}
+- Categories field must be an array like ["Others"]
 
-EXAMPLE OUTPUT:
+EXAMPLE:
 [{{"name":"John Doe","designation":"Manager","company":"ABC Corp","email":"john@abc.com","phone":"+1234567890","website":"","address":"123 Main St","categories":["Others"]}}]
 
-TEXT:
+If no contacts found, return: []
+
+TEXT TO ANALYZE:
 {text}
 
-JSON:"""
+RESPOND WITH JSON ARRAY:"""
 
     def _combine_results(self, spacy_results: Dict, llm_results: Dict, original_text: str) -> Dict[str, Any]:
         """Combine SpaCy and LLM results for optimal accuracy"""
