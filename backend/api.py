@@ -742,9 +742,12 @@ def delete_contact(
     db.commit()
     return {"message": "Contact deleted successfully"}
 
+class BatchDeleteRequest(BaseModel):
+    contact_ids: List[int]
+
 @app.delete("/contacts/batch")
 def batch_delete_contacts(
-    contact_ids: List[int],
+    request: BatchDeleteRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -752,7 +755,7 @@ def batch_delete_contacts(
     deleted_count = 0
     failed_ids = []
 
-    for contact_id in contact_ids:
+    for contact_id in request.contact_ids:
         db_contact = db.query(Contact).filter(Contact.id == contact_id).first()
         if db_contact:
             db.delete(db_contact)
@@ -805,14 +808,17 @@ def export_contacts(
         headers={"Content-Disposition": "attachment; filename=contacts.csv"}
     )
 
+class BatchExportRequest(BaseModel):
+    contact_ids: List[int]
+
 @app.post("/export/batch")
 def batch_export_contacts(
-    contact_ids: List[int],
+    request: BatchExportRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     """Export selected contacts to CSV"""
-    contacts = db.query(Contact).filter(Contact.id.in_(contact_ids)).all()
+    contacts = db.query(Contact).filter(Contact.id.in_(request.contact_ids)).all()
 
     if not contacts:
         raise HTTPException(status_code=404, detail="No contacts found with provided IDs")
@@ -844,3 +850,122 @@ def batch_export_contacts(
         media_type="text/csv",
         headers={"Content-Disposition": f"attachment; filename=selected_contacts_{len(contacts)}.csv"}
     )
+
+# File upload and processing endpoints
+@app.post("/upload")
+async def upload_file(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Upload and process contact files (CSV, VCF, images, etc.)"""
+    try:
+        # Check file size (10MB limit)
+        max_size = 10 * 1024 * 1024  # 10MB
+        content = await file.read()
+
+        if len(content) > max_size:
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail="File too large. Maximum size is 10MB."
+            )
+
+        # Reset file pointer
+        await file.seek(0)
+
+        # Determine file type and process accordingly
+        filename = file.filename.lower()
+        contacts_created = 0
+        errors = []
+
+        if filename.endswith('.csv'):
+            # Process CSV file
+            content_str = content.decode('utf-8')
+            lines = content_str.strip().split('\n')
+
+            if len(lines) < 2:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="CSV file must have at least a header and one data row"
+                )
+
+            # Simple CSV processing (assuming standard format)
+            header = lines[0].split(',')
+            for line in lines[1:]:
+                try:
+                    values = line.split(',')
+                    if len(values) >= 2:  # At least name and one other field
+                        contact_data = {
+                            'name': values[0].strip('"'),
+                            'email': values[1].strip('"') if len(values) > 1 else None,
+                            'phone': values[2].strip('"') if len(values) > 2 else None,
+                            'company': values[3].strip('"') if len(values) > 3 else None,
+                            'category': 'Others'
+                        }
+
+                        # Create contact
+                        db_contact = Contact(**contact_data)
+                        db.add(db_contact)
+                        contacts_created += 1
+
+                except Exception as e:
+                    errors.append(f"Error processing line: {line[:50]}... - {str(e)}")
+
+            db.commit()
+
+        elif filename.endswith('.vcf'):
+            # Process VCF file
+            content_str = content.decode('utf-8')
+            vcf_contacts = content_str.split('BEGIN:VCARD')
+
+            for vcf_contact in vcf_contacts[1:]:  # Skip first empty element
+                try:
+                    lines = vcf_contact.split('\n')
+                    contact_data = {'name': '', 'email': None, 'phone': None, 'category': 'Others'}
+
+                    for line in lines:
+                        if line.startswith('FN:'):
+                            contact_data['name'] = line[3:].strip()
+                        elif line.startswith('EMAIL'):
+                            contact_data['email'] = line.split(':')[1].strip()
+                        elif line.startswith('TEL'):
+                            contact_data['phone'] = line.split(':')[1].strip()
+                        elif line.startswith('ORG:'):
+                            contact_data['company'] = line[4:].strip()
+
+                    if contact_data['name']:
+                        db_contact = Contact(**contact_data)
+                        db.add(db_contact)
+                        contacts_created += 1
+
+                except Exception as e:
+                    errors.append(f"Error processing VCF contact - {str(e)}")
+
+            db.commit()
+
+        else:
+            # For other file types (images, etc.), return a message
+            return {
+                "message": "File uploaded successfully",
+                "filename": file.filename,
+                "size": len(content),
+                "note": "OCR processing for images is available but requires additional setup",
+                "contacts_created": 0,
+                "errors": ["OCR processing not implemented in this endpoint"]
+            }
+
+        return {
+            "message": "File processed successfully",
+            "filename": file.filename,
+            "contacts_created": contacts_created,
+            "errors": errors,
+            "total_errors": len(errors)
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error processing file: {str(e)}"
+        )
