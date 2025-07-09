@@ -17,7 +17,16 @@ import os
 import enum
 import io
 import csv
+import warnings
 from io import StringIO
+
+# Suppress bcrypt version warning and other non-critical warnings
+warnings.filterwarnings("ignore", message=".*bcrypt.*", category=UserWarning)
+warnings.filterwarnings("ignore", message=".*error reading bcrypt version.*")
+
+# Suppress the specific passlib bcrypt warning
+import logging
+logging.getLogger("passlib").setLevel(logging.ERROR)
 
 # Database setup
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./contact_management.sqlite")
@@ -142,12 +151,17 @@ ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "30"))
 
 # Enhanced password hashing with stronger settings
-pwd_context = CryptContext(
-    schemes=["bcrypt"],
-    deprecated="auto",
-    bcrypt__rounds=12,  # Increased rounds for better security
-    bcrypt__ident="2b"  # Use latest bcrypt variant
-)
+try:
+    pwd_context = CryptContext(
+        schemes=["bcrypt"],
+        deprecated="auto",
+        bcrypt__rounds=12,  # Increased rounds for better security
+        bcrypt__ident="2b"  # Use latest bcrypt variant
+    )
+except Exception as e:
+    print(f"⚠️  bcrypt configuration warning (non-critical): {e}")
+    # Fallback to basic bcrypt configuration
+    pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 security = HTTPBearer()
 
 # Admin user configuration from environment variables
@@ -265,6 +279,12 @@ app.add_middleware(
 
 # Create tables
 Base.metadata.create_all(bind=engine)
+
+# Startup message
+print("🚀 Contact Management System API v2.0 starting...")
+print("🔐 Authentication: JWT with bcrypt password hashing")
+print("🗄️  Database: Connected and tables created")
+print("✅ System ready for requests")
 
 # Root endpoint
 @app.get("/")
@@ -576,6 +596,59 @@ def check_environment_variables():
             "JWT_SECRET_KEY": "SET" if SECRET_KEY else "NOT_SET"
         }
     }
+
+@app.post("/auth/reset-admin")
+def reset_admin_user(db: Session = Depends(get_db)):
+    """Reset admin user with current environment variables (emergency endpoint)"""
+    if not ADMIN_PASSWORD:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="ADMIN_PASSWORD environment variable is required"
+        )
+
+    # Find existing admin user
+    admin_user = db.query(User).filter(User.role == UserRole.ADMIN).first()
+
+    if admin_user:
+        # Update existing admin with new credentials
+        admin_user.username = ADMIN_USERNAME
+        admin_user.email = ADMIN_EMAIL
+        admin_user.full_name = ADMIN_FULL_NAME
+        admin_user.hashed_password = get_password_hash(ADMIN_PASSWORD)
+        admin_user.is_active = True
+
+        db.commit()
+        db.refresh(admin_user)
+
+        return {
+            "message": "Admin user updated successfully",
+            "username": ADMIN_USERNAME,
+            "email": ADMIN_EMAIL,
+            "full_name": ADMIN_FULL_NAME,
+            "note": "Admin credentials updated from environment variables"
+        }
+    else:
+        # Create new admin if none exists
+        admin_user = User(
+            username=ADMIN_USERNAME,
+            email=ADMIN_EMAIL,
+            full_name=ADMIN_FULL_NAME,
+            hashed_password=get_password_hash(ADMIN_PASSWORD),
+            role=UserRole.ADMIN,
+            is_active=True
+        )
+
+        db.add(admin_user)
+        db.commit()
+        db.refresh(admin_user)
+
+        return {
+            "message": "Admin user created successfully",
+            "username": ADMIN_USERNAME,
+            "email": ADMIN_EMAIL,
+            "full_name": ADMIN_FULL_NAME,
+            "note": "New admin user created from environment variables"
+        }
 
 # Contact endpoints (all require authentication)
 @app.get("/contacts", response_model=List[ContactOut])
