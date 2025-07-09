@@ -84,7 +84,7 @@ export const contactsApi = {
       headers: {
         'Content-Type': 'multipart/form-data',
       },
-      timeout: 45000, // 45 seconds for file upload (backend times out at 30s)
+      timeout: 35000, // 35 seconds for Render deployment (backend max 30s)
     });
   },
   

@@ -1095,15 +1095,28 @@ async def upload_file(
         await file.seek(0)  # Reset file pointer
         file_size_mb = len(content) / (1024 * 1024)
 
+        # Reject files that are too large for Render processing
+        is_render = os.getenv("ENVIRONMENT") == "production"
+        max_size_mb = 1.5 if is_render else 2.0
+
+        if file_size_mb > max_size_mb:
+            logger.warning(f"File too large for processing: {file_size_mb:.1f}MB (max: {max_size_mb}MB)")
+            return {
+                "message": "File too large for processing",
+                "filename": file.filename,
+                "contacts_created": 0,
+                "errors": [f"File size {file_size_mb:.1f}MB exceeds maximum {max_size_mb}MB for reliable processing on our servers. Please compress or resize the image."],
+                "total_errors": 1,
+                "file_too_large": True
+            }
+
         # Use environment variables for timeout configuration (Render-optimized)
         base_timeout = float(os.getenv("UPLOAD_TIMEOUT_OVERALL", "30"))
 
-        if file_size_mb > 1.5:
-            overall_timeout = min(base_timeout, 30.0)  # Max 30s for Render
-        elif file_size_mb > 1.0:
-            overall_timeout = min(base_timeout - 5, 25.0)  # Max 25s
+        if file_size_mb > 1.0:
+            overall_timeout = min(base_timeout - 5, 25.0)  # Max 25s for 1-1.5MB
         else:
-            overall_timeout = min(base_timeout - 10, 20.0)  # Max 20s
+            overall_timeout = min(base_timeout - 10, 20.0)  # Max 20s for <1MB
 
         logger.info(f"Processing {file_size_mb:.1f}MB file with {overall_timeout}s overall timeout")
 
@@ -1233,16 +1246,24 @@ async def _process_upload_file(file: UploadFile, db: Session):
                 file_size_mb = len(content) / (1024 * 1024)
 
                 # Use environment variables for OCR timeout (Render deployment)
-                small_timeout = int(os.getenv("OCR_TIMEOUT_SMALL", "15"))
-                medium_timeout = int(os.getenv("OCR_TIMEOUT_MEDIUM", "20"))
-                large_timeout = int(os.getenv("OCR_TIMEOUT_LARGE", "25"))
+                # More aggressive timeouts for Render
+                is_render = os.getenv("ENVIRONMENT") == "production"
 
-                if file_size_mb > 1.5:
-                    ocr_timeout = large_timeout  # 25s max for large files
-                elif file_size_mb > 1.0:
-                    ocr_timeout = medium_timeout  # 20s for medium files
+                if is_render:
+                    # Render: Very aggressive timeouts
+                    if file_size_mb > 1.0:
+                        ocr_timeout = 15  # 15s max for 1-1.5MB files on Render
+                    else:
+                        ocr_timeout = 10  # 10s for small files on Render
                 else:
-                    ocr_timeout = small_timeout  # 15s for small files
+                    # Local/other deployments: Use environment variables
+                    small_timeout = int(os.getenv("OCR_TIMEOUT_SMALL", "15"))
+                    medium_timeout = int(os.getenv("OCR_TIMEOUT_MEDIUM", "20"))
+
+                    if file_size_mb > 1.0:
+                        ocr_timeout = medium_timeout  # 20s for medium files
+                    else:
+                        ocr_timeout = small_timeout  # 15s for small files
 
                 logger.info(f"Processing {file_size_mb:.1f}MB image with {ocr_timeout}s timeout")
 
@@ -1274,7 +1295,18 @@ async def _process_upload_file(file: UploadFile, db: Session):
 
                     except FutureTimeoutError:
                         logger.warning(f"OCR processing timed out for file: {file.filename} ({file_size_mb:.1f}MB) after {ocr_timeout}s")
-                        errors.append(f"OCR processing timed out after {ocr_timeout} seconds. For {file_size_mb:.1f}MB files, try reducing image size or using a clearer image.")
+
+                        # Provide specific guidance based on file size and environment
+                        is_render = os.getenv("ENVIRONMENT") == "production"
+                        if is_render:
+                            if file_size_mb > 1.0:
+                                error_msg = f"Image too large ({file_size_mb:.1f}MB) for our servers. Please use images smaller than 1MB for reliable processing."
+                            else:
+                                error_msg = f"OCR processing timed out after {ocr_timeout}s. Try using a clearer, higher-contrast image."
+                        else:
+                            error_msg = f"OCR processing timed out after {ocr_timeout} seconds. For {file_size_mb:.1f}MB files, try reducing image size or using a clearer image."
+
+                        errors.append(error_msg)
                         return {
                             "message": "Image uploaded but OCR processing timed out",
                             "filename": file.filename,
@@ -1283,7 +1315,9 @@ async def _process_upload_file(file: UploadFile, db: Session):
                             "errors": errors,
                             "total_errors": len(errors),
                             "ocr_used": False,
-                            "timeout": True
+                            "timeout": True,
+                            "file_size_mb": file_size_mb,
+                            "suggested_max_size": 1.0 if is_render else 1.5
                         }
 
             except Exception as e:

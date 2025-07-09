@@ -328,17 +328,17 @@ def parse_image_fast(file_content):
         if is_render:
             # Render deployment: use most aggressive optimization
             logger.info("Render deployment detected, using maximum optimization")
-            processed_image = preprocess_business_card_image(image)
+            processed_image = preprocess_business_card_image(image, file_size_mb)
             # Use fastest OCR settings for Render
             ocr_config = '--psm 6 --oem 1 -c tessedit_do_invert=0'  # Legacy engine, no inversion
         elif file_size_mb > 1.0:  # Files larger than 1MB
             logger.info("Large file detected, using aggressive optimization")
-            processed_image = preprocess_business_card_image(image)
+            processed_image = preprocess_business_card_image(image, file_size_mb)
             # Use faster OCR settings for large files
             ocr_config = '--psm 6 --oem 1'  # Use legacy OCR engine for speed
         else:
             # For smaller files, use standard preprocessing
-            processed_image = preprocess_business_card_image(image)
+            processed_image = preprocess_business_card_image(image, file_size_mb)
             ocr_config = '--psm 6 --oem 3'  # Use default OCR engine
 
         try:
@@ -363,7 +363,7 @@ def parse_image_fast(file_content):
         logger.error(f"Error in fast image parsing: {e}")
         return []
 
-def preprocess_business_card_image(image):
+def preprocess_business_card_image(image, file_size_mb=0):
     """Ultra-fast preprocessing optimized for Render deployment and large files"""
     try:
         # Check if running on Render for maximum optimization
@@ -374,7 +374,11 @@ def preprocess_business_card_image(image):
 
         # More aggressive resizing for Render deployment
         if is_render:
-            max_dimension = 800  # Smaller for Render to ensure speed
+            # Even more aggressive for Render - prioritize speed over quality
+            if file_size_mb > 1.0:
+                max_dimension = 600  # Very small for large files on Render
+            else:
+                max_dimension = 800  # Small for Render to ensure speed
         else:
             max_dimension = 1200  # Standard size for local/other deployments
 

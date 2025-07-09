@@ -27,6 +27,16 @@ function UploadPage() {
       };
     }
 
+    // Warning for large image files that may timeout on Render
+    const fileSizeMB = file.size / (1024 * 1024);
+    const isImageFile = ['jpg', 'jpeg', 'png', 'tiff', 'bmp'].includes(fileExtension);
+    if (isImageFile && fileSizeMB > 1.5) {
+      return {
+        isValid: false,
+        error: `Image file too large (${fileSizeMB.toFixed(1)}MB). Our servers can only process images up to 1.5MB reliably. Please compress or resize your image and try again.`
+      };
+    }
+
     return { isValid: true, error: null };
   };
 
@@ -39,12 +49,19 @@ function UploadPage() {
 
     setUploading(true);
 
-    // Show different messages based on file type
+    // Show different messages based on file type and size
     const fileExtension = file.name.split('.').pop().toLowerCase();
     const isImageFile = ['jpg', 'jpeg', 'png', 'tiff', 'bmp'].includes(fileExtension);
+    const fileSizeMB = file.size / (1024 * 1024);
 
     if (isImageFile) {
-      setMessage('Processing image with OCR... This may take up to 60 seconds.');
+      if (fileSizeMB > 1.5) {
+        setMessage(`Processing large image (${fileSizeMB.toFixed(1)}MB) with OCR... This may take up to 30 seconds.`);
+      } else if (fileSizeMB > 1.0) {
+        setMessage(`Processing image (${fileSizeMB.toFixed(1)}MB) with OCR... This may take up to 25 seconds.`);
+      } else {
+        setMessage('Processing image with OCR... This may take up to 20 seconds.');
+      }
     } else {
       setMessage('Uploading and processing file...');
     }

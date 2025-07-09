@@ -1,0 +1,73 @@
+services:
+  - type: web
+    name: ocr-microservice
+    env: docker
+    dockerfilePath: ./Dockerfile
+    envVars:
+      # CORS Configuration
+      - key: ALLOWED_ORIGINS
+        value: https://contact-management-six-alpha.vercel.app,https://contact-management-ffsl.onrender.com
+
+      # LLM Provider Configuration (at least one required for smart extraction)
+      # OpenAI (or OpenAI-compatible)
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_BASE_URL
+        sync: false  # For OpenAI-compatible APIs
+      - key: OPENAI_MODEL
+        value: gpt-3.5-turbo
+
+      # Anthropic Claude
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: ANTHROPIC_MODEL
+        value: claude-3-haiku-20240307
+
+      # Google Gemini
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_MODEL
+        value: gemini-pro
+
+      # OpenAI-Compatible Providers
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GROQ_MODEL
+        value: mixtral-8x7b-32768
+
+      - key: TOGETHER_API_KEY
+        sync: false
+      - key: TOGETHER_MODEL
+        value: meta-llama/Llama-2-7b-chat-hf
+
+      - key: PERPLEXITY_API_KEY
+        sync: false
+      - key: PERPLEXITY_MODEL
+        value: llama-3.1-sonar-small-128k-online
+
+      - key: DEEPSEEK_API_KEY
+        sync: false
+      - key: DEEPSEEK_MODEL
+        value: deepseek-chat
+      
+      # Service Configuration
+      - key: PORT
+        value: 8002
+      
+      # OCR Configuration
+      - key: TESSERACT_PATH
+        value: /usr/bin/tesseract
+      - key: TESSDATA_PREFIX
+        value: /usr/share/tesseract-ocr/4.00/tessdata/
+      
+      # Performance Settings
+      - key: MAX_WORKERS
+        value: 2
+      - key: TIMEOUT_KEEP_ALIVE
+        value: 65
+    
+    # Resource allocation
+    plan: starter  # Can upgrade to standard for better performance
+    
+    # Health check
+    healthCheckPath: /health
