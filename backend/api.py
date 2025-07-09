@@ -11,6 +11,7 @@ from sqlalchemy.orm import sessionmaker, Session
 from pydantic import BaseModel
 from passlib.context import CryptContext
 from jose import JWTError, jwt
+from jose.exceptions import ExpiredSignatureError, JWTClaimsError
 from datetime import datetime, timedelta
 from typing import Optional, List
 import os
@@ -170,7 +171,7 @@ if not SECRET_KEY:
     print("⚠️  WARNING: Using default JWT secret key. Set JWT_SECRET_KEY environment variable in production!")
 
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "30"))
+ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "480"))  # 8 hours default
 
 # Enhanced password hashing with stronger settings
 try:
@@ -223,14 +224,27 @@ def verify_token(token: str):
         if username is None:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid authentication credentials",
+                detail="Invalid token: missing username",
                 headers={"WWW-Authenticate": "Bearer"},
             )
         return username
-    except JWTError:
+    except ExpiredSignatureError:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid authentication credentials",
+            detail="Token has expired. Please login again.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    except JWTClaimsError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token claims",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    except JWTError as e:
+        print(f"JWT Error: {e}")  # Log for debugging
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token. Please login again.",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
