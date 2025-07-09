@@ -1291,12 +1291,21 @@ async def _process_upload_file(file: UploadFile, db: Session):
         contacts_created = 0
         errors = []
 
-        # Try Content Intelligence first for better results
+        # Use Content Intelligence Service for ALL file types (replaces old OCR)
         try:
+            logger.info(f"🧠 Using Content Intelligence Service for {filename}")
             return await _process_with_content_intelligence(file, content, filename, db)
         except Exception as e:
-            logger.warning(f"Content Intelligence failed: {e}, falling back to original methods")
-            # Continue with original processing methods below
+            logger.error(f"❌ Content Intelligence failed: {e}")
+            # Return error instead of falling back to old methods
+            return {
+                "message": "File processing failed",
+                "filename": file.filename,
+                "contacts_created": 0,
+                "errors": [f"Content Intelligence processing failed: {str(e)}. Please try again or contact support."],
+                "total_errors": 1,
+                "content_intelligence_failed": True
+            }
 
         if filename.endswith('.csv'):
             # Process CSV file
@@ -1363,121 +1372,18 @@ async def _process_upload_file(file: UploadFile, db: Session):
 
             db.commit()
 
-        elif filename.endswith(('.png', '.jpg', '.jpeg', '.tiff', '.bmp')):
-            # Process image files with OCR (with timeout handling)
-            try:
-                import asyncio
-                from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
-                # Import the fast parsing function
-                try:
-                    from app.parsers.parse import parse_image_fast
-                    parse_func = parse_image_fast
-                except ImportError:
-                    # Fallback to regular parse_image if fast version not available
-                    from app.parsers.parse import parse_image
-                    parse_func = parse_image
+        # All file processing now handled by Content Intelligence Service above
+        # This fallback should not be reached if Content Intelligence is working
+        logger.warning(f"⚠️ Fallback processing reached for {filename} - Content Intelligence should handle all files")
 
-                # Calculate timeout based on file size (Render-optimized)
-                file_size_mb = len(content) / (1024 * 1024)
-
-                # Use environment variables for OCR timeout (Render deployment)
-                # More aggressive timeouts for Render
-                is_render = os.getenv("ENVIRONMENT") == "production"
-
-                if is_render:
-                    # Render: Very aggressive timeouts
-                    if file_size_mb > 1.0:
-                        ocr_timeout = 15  # 15s max for 1-1.5MB files on Render
-                    else:
-                        ocr_timeout = 10  # 10s for small files on Render
-                else:
-                    # Local/other deployments: Use environment variables
-                    small_timeout = int(os.getenv("OCR_TIMEOUT_SMALL", "15"))
-                    medium_timeout = int(os.getenv("OCR_TIMEOUT_MEDIUM", "20"))
-
-                    if file_size_mb > 1.0:
-                        ocr_timeout = medium_timeout  # 20s for medium files
-                    else:
-                        ocr_timeout = small_timeout  # 15s for small files
-
-                logger.info(f"Processing {file_size_mb:.1f}MB image with {ocr_timeout}s timeout")
-
-                # Use a thread pool to run OCR with dynamic timeout
-                with ThreadPoolExecutor(max_workers=1) as executor:
-                    try:
-                        future = executor.submit(parse_func, content)
-                        contacts_data = future.result(timeout=ocr_timeout)
-
-                        for contact_data in contacts_data:
-                            try:
-                                # Create contact
-                                db_contact = Contact(**contact_data)
-                                db.add(db_contact)
-                                contacts_created += 1
-                            except Exception as e:
-                                errors.append(f"Error creating contact from OCR: {str(e)}")
-
-                        db.commit()
-
-                        return {
-                            "message": "Image processed with OCR successfully",
-                            "filename": file.filename,
-                            "contacts_created": contacts_created,
-                            "errors": errors,
-                            "total_errors": len(errors),
-                            "ocr_used": True
-                        }
-
-                    except FutureTimeoutError:
-                        logger.warning(f"OCR processing timed out for file: {file.filename} ({file_size_mb:.1f}MB) after {ocr_timeout}s")
-
-                        # Provide specific guidance based on file size and environment
-                        is_render = os.getenv("ENVIRONMENT") == "production"
-                        if is_render:
-                            if file_size_mb > 1.0:
-                                error_msg = f"Image too large ({file_size_mb:.1f}MB) for our servers. Please use images smaller than 1MB for reliable processing."
-                            else:
-                                error_msg = f"OCR processing timed out after {ocr_timeout}s. Try using a clearer, higher-contrast image."
-                        else:
-                            error_msg = f"OCR processing timed out after {ocr_timeout} seconds. For {file_size_mb:.1f}MB files, try reducing image size or using a clearer image."
-
-                        errors.append(error_msg)
-                        return {
-                            "message": "Image uploaded but OCR processing timed out",
-                            "filename": file.filename,
-                            "size": len(content),
-                            "contacts_created": 0,
-                            "errors": errors,
-                            "total_errors": len(errors),
-                            "ocr_used": False,
-                            "timeout": True,
-                            "file_size_mb": file_size_mb,
-                            "suggested_max_size": 1.0 if is_render else 1.5
-                        }
-
-            except Exception as e:
-                logger.error(f"OCR processing failed for file {file.filename}: {str(e)}")
-                errors.append(f"OCR processing failed: {str(e)}")
-                return {
-                    "message": "Image uploaded but OCR processing failed",
-                    "filename": file.filename,
-                    "size": len(content),
-                    "contacts_created": 0,
-                    "errors": errors,
-                    "total_errors": len(errors),
-                    "ocr_used": False
-                }
-
-        else:
-            # For other file types
-            return {
-                "message": "File uploaded successfully",
-                "filename": file.filename,
-                "size": len(content),
-                "note": "File type not supported for automatic processing",
-                "contacts_created": 0,
-                "errors": ["Unsupported file type for contact extraction"]
-            }
+        return {
+            "message": "File processing completed with fallback method",
+            "filename": file.filename,
+            "contacts_created": contacts_created,
+            "errors": errors + ["Used fallback processing - Content Intelligence may not be configured"],
+            "total_errors": len(errors) + 1,
+            "fallback_used": True
+        }
 
         return {
             "message": "File processed successfully",

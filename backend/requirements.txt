@@ -1,32 +1,34 @@
+# Core FastAPI and Database
 fastapi==0.104.1
 uvicorn==0.24.0
 sqlalchemy==2.0.23
 psycopg2-binary==2.9.9
-pandas==2.1.3
-pymupdf==1.23.8
-python-docx==1.1.0
 python-multipart==0.0.6
-spacy==3.7.2
-vobject==0.9.6.1
-scikit-learn==1.3.2
-joblib==1.3.2
-pydantic==2.5.0
 python-dotenv==1.0.0
-requests==2.31.0
-httpx==0.25.2
-
-# Content Intelligence Dependencies
-spacy==3.7.2
-openai==1.3.7
-anthropic==0.7.8
-pytesseract==0.3.10
-pillow==10.1.0
+pydantic==2.5.0
 
 # Authentication & Security
 python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
 bcrypt>=4.0.0,<5.0.0
 
-# Database drivers for production
-# PostgreSQL driver (already included: psycopg2-binary==2.9.9)
-# Additional dependencies for cloud deployment
+# Content Intelligence (LLM + NLP) - Core Dependencies
+spacy==3.7.2
+openai==1.3.7
+
+# File Processing (Essential only)
+pymupdf==1.23.8
+python-docx==1.1.0
+pillow==10.1.0
+vobject==0.9.6.1
+
+# HTTP Client for OCR Microservice
+httpx==0.25.2
+
+# Removed heavy dependencies:
+# - pandas (not essential for contact management)
+# - scikit-learn (not needed with LLM approach)
+# - joblib (dependency of scikit-learn)
+# - pytesseract (replaced by OCR microservice)
+# - anthropic (optional, can be added if needed)
+# - requests (httpx is sufficient)
