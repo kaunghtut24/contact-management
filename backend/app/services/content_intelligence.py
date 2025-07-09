@@ -548,13 +548,14 @@ SpaCy Analysis Context:
 
 REQUIREMENTS:
 - Return ONLY a JSON array, nothing else
-- Each contact must have: name, designation, company, email, phone, website, address, categories
+- Each contact must have: name, designation, company, email, phone, website, address, categories, notes
 - Use empty string "" for missing fields
 - Categories must be from: {self.business_categories}
 - Categories field must be an array like ["Others"]
+- Notes field should be SHORT (max 80 chars) and contain only: key qualifications, years of experience, or main specialization - NOT already captured in other fields
 
 EXAMPLE:
-[{{"name":"John Doe","designation":"Manager","company":"ABC Corp","email":"john@abc.com","phone":"+1234567890","website":"","address":"123 Main St","categories":["Others"]}}]
+[{{"name":"John Doe","designation":"Manager","company":"ABC Corp","email":"john@abc.com","phone":"+1234567890","website":"","address":"123 Main St","categories":["Others"],"notes":"MBA, 15+ years exp, speaks Spanish"}}]
 
 If no contacts found, return: []
 
@@ -597,10 +598,10 @@ RESPOND WITH JSON ARRAY:"""
         """Validate and enhance a contact using SpaCy entities"""
 
         # Validate required fields
-        required_fields = ["name", "designation", "company", "email", "phone", "website", "address", "categories"]
+        required_fields = ["name", "designation", "company", "email", "phone", "website", "address", "categories", "notes"]
         for field in required_fields:
             if field not in contact:
-                contact[field] = ""
+                contact[field] = "" if field != "categories" else []
 
         # Validate email
         if contact["email"]:
@@ -699,7 +700,12 @@ RESPOND WITH JSON ARRAY:"""
                 "phone": phones[i] if i < len(phones) else (phones[0] if phones else ""),
                 "website": "",
                 "address": "",
-                "categories": [self._infer_category({"company": orgs[0] if orgs else "", "designation": ""}, text)]
+                "categories": [self._infer_category({"company": orgs[0] if orgs else "", "designation": ""}, text)],
+                "notes": self._generate_smart_notes(text, {
+                    "name": persons[i] if i < len(persons) else "",
+                    "company": orgs[i] if i < len(orgs) else (orgs[0] if orgs else ""),
+                    "email": email
+                })
             }
             contacts.append(contact)
 
@@ -731,7 +737,8 @@ RESPOND WITH JSON ARRAY:"""
                     "phone": "",
                     "website": "",
                     "address": "",
-                    "categories": ["Others"]
+                    "categories": ["Others"],
+                    "notes": self._generate_smart_notes(text, {"name": lines[0] if lines else ""})
                 }
                 contacts.append(contact)
                 logger.info(f"📝 Created basic contact from text: {contact['name']}")
@@ -771,6 +778,85 @@ RESPOND WITH JSON ARRAY:"""
         if entities.get("ORG"): entity_boost += 0.1
 
         return min(1.0, avg_score + entity_boost)
+
+    def _generate_smart_notes(self, text: str, contact_info: Dict) -> str:
+        """Generate concise notes from parsed information only"""
+        try:
+            notes = []
+            text_lower = text.lower()
+
+            # Extract key information concisely
+            lines = [line.strip() for line in text.split('\n') if line.strip()]
+
+            for line in lines:
+                line_lower = line.lower()
+                line_clean = line.strip()
+
+                # Skip lines that are already captured in standard fields
+                if (contact_info.get('name', '').lower() in line_lower or
+                    contact_info.get('email', '').lower() in line_lower or
+                    contact_info.get('company', '').lower() in line_lower or
+                    '@' in line or 'www.' in line_lower or
+                    any(char.isdigit() for char in line[:3])):  # Skip phone numbers
+                    continue
+
+                # Extract qualifications (keep short)
+                if any(keyword in line_lower for keyword in ['phd', 'mba', 'degree', 'certified']):
+                    # Extract just the qualification part
+                    if 'phd' in line_lower:
+                        notes.append("PhD")
+                    elif 'mba' in line_lower:
+                        notes.append("MBA")
+                    elif 'certified' in line_lower:
+                        notes.append("Certified")
+
+                # Extract experience (keep short)
+                elif any(keyword in line_lower for keyword in ['years experience', 'experience']):
+                    # Extract just the years if mentioned
+                    import re
+                    years_match = re.search(r'(\d+)\+?\s*years?', line_lower)
+                    if years_match:
+                        notes.append(f"{years_match.group(1)}+ years exp")
+
+                # Extract specializations (keep short)
+                elif any(keyword in line_lower for keyword in ['specializes', 'expert in', 'skilled in']):
+                    # Extract the specialization area
+                    for keyword in ['specializes in', 'expert in', 'skilled in']:
+                        if keyword in line_lower:
+                            spec = line_lower.split(keyword, 1)[1].strip()
+                            if spec and len(spec) < 30:
+                                notes.append(f"Expert: {spec.title()}")
+                            break
+
+                # Extract languages (keep short)
+                elif any(keyword in line_lower for keyword in ['speaks', 'fluent', 'languages']):
+                    # Extract language names
+                    languages = []
+                    for lang in ['english', 'spanish', 'french', 'german', 'chinese', 'hindi', 'bengali']:
+                        if lang in line_lower:
+                            languages.append(lang.title())
+                    if languages:
+                        notes.append(f"Languages: {', '.join(languages[:3])}")
+
+                # Extract awards (keep short)
+                elif any(keyword in line_lower for keyword in ['award', 'winner', 'excellence']):
+                    if len(line_clean) < 40:  # Only short award mentions
+                        notes.append(f"Award: {line_clean}")
+
+            # Limit to 3 most important notes and keep total under 100 chars
+            if notes:
+                notes = notes[:3]
+                combined = "; ".join(notes)
+                if len(combined) > 100:
+                    # Truncate to fit
+                    combined = combined[:97] + "..."
+                return combined
+
+            return ""
+
+        except Exception as e:
+            logger.error(f"Error generating smart notes: {e}")
+            return ""
 
     def _create_fallback_contact_from_text(self, llm_text: str, spacy_results: Dict) -> Optional[Dict]:
         """Create a basic contact when LLM returns invalid JSON but useful text"""

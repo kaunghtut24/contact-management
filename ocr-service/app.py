@@ -330,7 +330,7 @@ class LLMProcessor:
         """Create extraction prompt for contact information"""
         return f"""
 Extract contact information from the following text and return as JSON array.
-Each contact should have these fields: name, designation, company, email, phone, website, address, categories.
+Each contact should have these fields: name, designation, company, email, phone, website, address, categories, notes.
 
 Categories should be one or more of: Government, Embassy, Consulate, High Commissioner, Deputy High Commissioner,
 Associations, Exporter, Importer, Logistics, Event management, Consultancy, Manufacturer, Distributors, Producers, Others.
@@ -342,6 +342,10 @@ Rules:
 4. Categories should be array of strings
 5. Clean and format phone numbers consistently
 6. Validate email addresses
+7. Notes should be SHORT (max 80 chars) with only key info: qualifications, years experience, or main specialization
+
+Example with concise notes:
+[{{"name":"John Doe","designation":"Manager","company":"ABC Corp","email":"john@abc.com","phone":"+1234567890","website":"","address":"123 Main St","categories":["Others"],"notes":"MBA, 10+ years exp, speaks Spanish"}}]
 
 Text to process:
 {text}
@@ -427,9 +431,10 @@ JSON Response:"""
                 "phone": phones[0] if phones else "",
                 "website": "",
                 "address": "",
-                "categories": ["Others"]
+                "categories": ["Others"],
+                "notes": ""
             }
-            
+
             # Try to find name and company near email
             for i, line in enumerate(lines):
                 if email in line:
@@ -439,7 +444,10 @@ JSON Response:"""
                             contact["name"] = lines[j].strip()
                             break
                     break
-            
+
+            # Generate notes from remaining text
+            contact["notes"] = self._generate_notes_from_text(text, contact)
+
             contacts.append(contact)
         
         return contacts if contacts else [{
@@ -450,8 +458,63 @@ JSON Response:"""
             "phone": phones[0] if phones else "",
             "website": "",
             "address": "",
-            "categories": ["Others"]
+            "categories": ["Others"],
+            "notes": self._generate_notes_from_text(text, {})
         }]
+
+    def _generate_notes_from_text(self, text: str, contact_info: Dict) -> str:
+        """Generate concise notes from parsed information only"""
+        try:
+            notes = []
+            text_lower = text.lower()
+            lines = [line.strip() for line in text.split('\n') if line.strip()]
+
+            for line in lines:
+                line_lower = line.lower()
+                line_clean = line.strip()
+
+                # Skip standard contact fields
+                if (contact_info.get('name', '').lower() in line_lower or
+                    contact_info.get('email', '').lower() in line_lower or
+                    '@' in line or 'www.' in line_lower or
+                    any(char.isdigit() for char in line[:3])):
+                    continue
+
+                # Extract key info concisely
+                if 'phd' in line_lower:
+                    notes.append("PhD")
+                elif 'mba' in line_lower:
+                    notes.append("MBA")
+                elif 'certified' in line_lower and len(line_clean) < 30:
+                    notes.append("Certified")
+                elif any(keyword in line_lower for keyword in ['years experience', 'experience']):
+                    import re
+                    years_match = re.search(r'(\d+)\+?\s*years?', line_lower)
+                    if years_match:
+                        notes.append(f"{years_match.group(1)}+ years")
+                elif any(keyword in line_lower for keyword in ['specializes', 'expert']):
+                    if len(line_clean) < 40:
+                        notes.append(f"Expert: {line_clean}")
+                elif any(lang in line_lower for lang in ['english', 'spanish', 'french', 'hindi', 'bengali']):
+                    languages = [lang.title() for lang in ['english', 'spanish', 'french', 'hindi', 'bengali'] if lang in line_lower]
+                    if languages:
+                        notes.append(f"Languages: {', '.join(languages[:2])}")
+                elif 'award' in line_lower and len(line_clean) < 35:
+                    notes.append(f"Award winner")
+
+            # Keep only top 2 notes and under 80 characters total
+            if notes:
+                notes = notes[:2]
+                combined = "; ".join(notes)
+                if len(combined) > 80:
+                    combined = combined[:77] + "..."
+                return combined
+
+            return ""
+
+        except Exception as e:
+            logger.error(f"Error generating notes: {e}")
+            return ""
 
 # Initialize processors
 try:

@@ -1206,7 +1206,7 @@ async def _process_with_content_intelligence(file: UploadFile, content: bytes, f
                                 "website": contact_data.get("website", ""),
                                 "address": contact_data.get("address", ""),
                                 "category": category_str,
-                                "notes": ""
+                                "notes": contact_data.get("notes", "")
                             }
 
                             logger.info(f"💾 Final OCR database contact data:")
@@ -1345,7 +1345,7 @@ async def _process_with_content_intelligence(file: UploadFile, content: bytes, f
                 "website": contact_data.get("website", ""),
                 "address": contact_data.get("address", ""),
                 "category": category_str,  # Fixed: use 'category' not 'categories'
-                "notes": ""  # Add empty notes field
+                "notes": contact_data.get("notes", "")  # Use AI-generated notes
             }
 
             logger.info(f"💾 Final database contact data:")
