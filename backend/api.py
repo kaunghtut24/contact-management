@@ -28,9 +28,31 @@ warnings.filterwarnings("ignore", message=".*error reading bcrypt version.*")
 import logging
 logging.getLogger("passlib").setLevel(logging.ERROR)
 
-# Database setup
+# Database setup with connection pooling and SSL configuration
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./contact_management.sqlite")
-engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False} if "sqlite" in DATABASE_URL else {})
+
+# Configure engine with proper connection pooling and SSL settings
+if "postgresql" in DATABASE_URL:
+    # PostgreSQL configuration with connection pooling and SSL
+    engine = create_engine(
+        DATABASE_URL,
+        pool_size=10,
+        max_overflow=20,
+        pool_pre_ping=True,  # Verify connections before use
+        pool_recycle=300,    # Recycle connections every 5 minutes
+        connect_args={
+            "sslmode": "require",
+            "connect_timeout": 10,
+            "application_name": "contact_management_api"
+        }
+    )
+else:
+    # SQLite configuration for local development
+    engine = create_engine(
+        DATABASE_URL,
+        connect_args={"check_same_thread": False}
+    )
+
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
@@ -223,11 +245,27 @@ def authenticate_user(db: Session, username: str, password: str):
         return False
     return user
 
-# Database dependency
+# Database dependency with retry logic
 def get_db():
     db = SessionLocal()
     try:
+        # Test the connection
+        db.execute("SELECT 1")
         yield db
+    except Exception as e:
+        db.rollback()
+        print(f"Database connection error: {e}")
+        # Try to create a new session
+        try:
+            db.close()
+            db = SessionLocal()
+            yield db
+        except Exception as retry_error:
+            print(f"Database retry failed: {retry_error}")
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Database connection temporarily unavailable"
+            )
     finally:
         db.close()
 
@@ -295,6 +333,54 @@ def root():
 @app.get("/health")
 def health_check():
     return {"status": "healthy", "message": "Contact Management System API v2.0 is running"}
+
+# Database health check
+@app.get("/health/db")
+def database_health_check(db: Session = Depends(get_db)):
+    """Check database connectivity"""
+    try:
+        # Test database connection
+        result = db.execute("SELECT 1 as test").fetchone()
+        user_count = db.query(User).count()
+        contact_count = db.query(Contact).count()
+
+        return {
+            "status": "healthy",
+            "database": "connected",
+            "test_query": "successful",
+            "users_count": user_count,
+            "contacts_count": contact_count,
+            "message": "Database is accessible and responsive"
+        }
+    except Exception as e:
+        return {
+            "status": "unhealthy",
+            "database": "disconnected",
+            "error": str(e),
+            "message": "Database connection failed"
+        }
+
+# Database connection pool status
+@app.get("/health/db/pool")
+def database_pool_status():
+    """Check database connection pool status"""
+    try:
+        pool = engine.pool
+        return {
+            "status": "healthy",
+            "pool_size": pool.size(),
+            "checked_in": pool.checkedin(),
+            "checked_out": pool.checkedout(),
+            "overflow": pool.overflow(),
+            "invalid": pool.invalid(),
+            "message": "Connection pool status retrieved successfully"
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "error": str(e),
+            "message": "Failed to retrieve connection pool status"
+        }
 
 # OCR status check
 @app.get("/ocr/status")
