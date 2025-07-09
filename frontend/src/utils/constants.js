@@ -1,7 +1,7 @@
 // API Configuration
-// Temporary override for testing - force Render backend URL
-export const API_BASE_URL = 'https://contact-management-ffsl.onrender.com';
-// export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+// Local development configuration
+export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+// export const API_BASE_URL = 'https://contact-management-ffsl.onrender.com';
 
 // Debug: Log the API URL being used
 console.log('🔗 API_BASE_URL (Updated):', API_BASE_URL);
