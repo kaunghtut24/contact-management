@@ -17,6 +17,11 @@ httpx==0.25.2
 pytesseract==0.3.10
 pillow==10.1.0
 
+# Authentication & Security
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+python-multipart==0.0.6
+
 # Database drivers for production
 # PostgreSQL driver (already included: psycopg2-binary==2.9.9)
 # Additional dependencies for cloud deployment

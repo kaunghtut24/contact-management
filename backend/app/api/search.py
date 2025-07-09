@@ -1,5 +1,5 @@
 """
-API endpoints for advanced search and filtering
+API endpoints for advanced search and filtering with authentication
 """
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
@@ -10,10 +10,12 @@ from datetime import datetime
 from ..database import get_db
 from ..models.search import SavedFilter
 from ..schemas.search import (
-    AdvancedSearchRequest, SearchResult, SavedFilterCreate, 
+    AdvancedSearchRequest, SearchResult, SavedFilterCreate,
     SavedFilterUpdate, SavedFilterOut, SearchSuggestion
 )
 from ..services.search_service import search_service
+from ..auth.security import get_current_active_user, require_admin
+from ..models.user import User
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -23,22 +25,24 @@ def full_text_search(
     q: str = Query(..., description="Search query"),
     page: int = Query(1, ge=1, description="Page number"),
     page_size: int = Query(20, ge=1, le=100, description="Items per page"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
 ):
-    """Perform full-text search across all contact fields"""
+    """Perform full-text search across all contact fields (authenticated users only)"""
     if not q.strip():
         raise HTTPException(status_code=400, detail="Search query cannot be empty")
-    
+
     result = search_service.full_text_search(db, q.strip(), page, page_size)
-    logger.info(f"Full-text search for '{q}' returned {result.total_count} results")
+    logger.info(f"User {current_user.username} performed search for '{q}' - {result.total_count} results")
     return result
 
 @router.post("/search/advanced", response_model=SearchResult)
 def advanced_search(
     search_request: AdvancedSearchRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
 ):
-    """Perform advanced search with specific field criteria"""
+    """Perform advanced search with specific field criteria (authenticated users only)"""
     result = search_service.advanced_search(
         db=db,
         criteria=search_request.criteria,
@@ -47,19 +51,20 @@ def advanced_search(
         page=search_request.page,
         page_size=search_request.page_size
     )
-    logger.info(f"Advanced search returned {result.total_count} results")
+    logger.info(f"User {current_user.username} performed advanced search - {result.total_count} results")
     return result
 
 @router.get("/search/suggestions")
 def get_search_suggestions(
     q: str = Query(..., description="Partial search query"),
     limit: int = Query(10, ge=1, le=20, description="Maximum suggestions"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
 ):
-    """Get search suggestions based on existing data"""
+    """Get optimized search suggestions based on existing data (authenticated users only)"""
     if len(q.strip()) < 2:
         return []
-    
+
     suggestions = search_service.get_search_suggestions(db, q.strip(), limit)
     return suggestions
 
