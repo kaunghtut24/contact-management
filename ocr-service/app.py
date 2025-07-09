@@ -11,9 +11,9 @@ import io
 import os
 import logging
 import uuid
+import json
 from datetime import datetime
 from typing import List, Dict, Any, Optional
-import json
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -408,8 +408,38 @@ JSON Response:"""
         }]
 
 # Initialize processors
-ocr_processor = OCRProcessor()
-llm_processor = LLMProcessor()
+try:
+    ocr_processor = OCRProcessor()
+    logger.info("✅ OCR processor initialized")
+except Exception as e:
+    logger.error(f"❌ Failed to initialize OCR processor: {e}")
+    ocr_processor = None
+
+try:
+    llm_processor = LLMProcessor()
+    logger.info("✅ LLM processor initialized")
+except Exception as e:
+    logger.error(f"❌ Failed to initialize LLM processor: {e}")
+    # Create a fallback LLM processor
+    class FallbackLLMProcessor:
+        def __init__(self):
+            self.providers = {}
+            self.default_provider = None
+
+        async def extract_contacts(self, text: str, provider: str = None) -> List[Dict[str, Any]]:
+            return self.rule_based_extraction(text)
+
+        def rule_based_extraction(self, text: str) -> List[Dict[str, Any]]:
+            import re
+            email_pattern = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'
+            emails = re.findall(email_pattern, text, re.IGNORECASE)
+            return [{"name": "", "designation": "", "company": "", "email": email,
+                    "phone": "", "website": "", "address": "", "categories": ["Others"]}
+                   for email in emails] if emails else [{"name": "", "designation": "",
+                   "company": "", "email": "", "phone": "", "website": "", "address": "",
+                   "categories": ["Others"]}]
+
+    llm_processor = FallbackLLMProcessor()
 
 @app.get("/")
 async def root():
@@ -420,7 +450,9 @@ async def root():
         "status": "healthy",
         "capabilities": {
             "ocr_available": OCR_AVAILABLE,
-            "llm_available": LLM_AVAILABLE and llm_processor.client is not None
+            "llm_available": len(llm_processor.providers) > 0,
+            "llm_providers": list(llm_processor.providers.keys()),
+            "default_provider": llm_processor.default_provider
         },
         "timestamp": datetime.utcnow().isoformat()
     }
@@ -431,7 +463,9 @@ async def health_check():
     return {
         "status": "healthy",
         "ocr_available": OCR_AVAILABLE,
-        "llm_available": LLM_AVAILABLE and llm_processor.client is not None,
+        "llm_available": len(llm_processor.providers) > 0,
+        "llm_providers": list(llm_processor.providers.keys()),
+        "default_provider": llm_processor.default_provider,
         "job_queue_size": len(job_storage)
     }
 
@@ -440,21 +474,24 @@ async def process_image_sync(file: UploadFile = File(...)):
     """Synchronous image processing (for small files)"""
     if not file.filename.lower().endswith(('.png', '.jpg', '.jpeg', '.tiff', '.bmp')):
         raise HTTPException(status_code=400, detail="Unsupported file type")
-    
+
+    if not OCR_AVAILABLE or ocr_processor is None:
+        raise HTTPException(status_code=503, detail="OCR service not available")
+
     try:
         content = await file.read()
         file_size_mb = len(content) / (1024 * 1024)
-        
+
         # Limit sync processing to smaller files
         if file_size_mb > 1.0:
             raise HTTPException(
-                status_code=413, 
+                status_code=413,
                 detail=f"File too large ({file_size_mb:.1f}MB) for sync processing. Use async endpoint."
             )
-        
+
         # Process with OCR
         ocr_result = await ocr_processor.process_image(content, timeout=15)
-        
+
         if not ocr_result["success"]:
             return JSONResponse(
                 status_code=422,
@@ -464,10 +501,10 @@ async def process_image_sync(file: UploadFile = File(...)):
                     "image_info": ocr_result.get("image_info")
                 }
             )
-        
+
         # Extract contacts using LLM
         contacts = await llm_processor.extract_contacts(ocr_result["text"])
-        
+
         return {
             "success": True,
             "filename": file.filename,
@@ -475,7 +512,7 @@ async def process_image_sync(file: UploadFile = File(...)):
             "contacts": contacts,
             "processing_time": "sync"
         }
-        
+
     except Exception as e:
         logger.error(f"Sync processing failed: {e}")
         raise HTTPException(status_code=500, detail=f"Processing failed: {str(e)}")
