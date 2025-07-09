@@ -27,13 +27,52 @@ if command -v tesseract >/dev/null 2>&1; then
     TESSERACT_VERSION=$(tesseract --version | head -1)
     echo "✅ Tesseract verified: $TESSERACT_VERSION"
 
+    # Find correct Tesseract data path
+    echo "🔍 Finding Tesseract data directory..."
+
+    # Try common locations for tessdata
+    TESSDATA_PATHS=(
+        "/usr/share/tesseract-ocr/tessdata"
+        "/usr/share/tesseract-ocr/4.00/tessdata"
+        "/usr/share/tesseract-ocr/5.00/tessdata"
+        "/usr/share/tessdata"
+        "/usr/local/share/tessdata"
+    )
+
+    TESSDATA_PREFIX=""
+    for path in "${TESSDATA_PATHS[@]}"; do
+        if [ -d "$path" ] && [ -f "$path/eng.traineddata" ]; then
+            TESSDATA_PREFIX="$path"
+            echo "✅ Found Tesseract data at: $TESSDATA_PREFIX"
+            break
+        fi
+    done
+
+    # If not found, try to find it dynamically
+    if [ -z "$TESSDATA_PREFIX" ]; then
+        echo "🔍 Searching for eng.traineddata file..."
+        TESSDATA_FILE=$(find /usr -name "eng.traineddata" -type f 2>/dev/null | head -1)
+        if [ -n "$TESSDATA_FILE" ]; then
+            TESSDATA_PREFIX=$(dirname "$TESSDATA_FILE")
+            echo "✅ Found Tesseract data at: $TESSDATA_PREFIX"
+        else
+            echo "⚠️  Could not find Tesseract data files"
+            TESSDATA_PREFIX="/usr/share/tesseract-ocr/tessdata"
+        fi
+    fi
+
     # Set Tesseract environment variables
     export TESSERACT_PATH=/usr/bin/tesseract
-    export TESSDATA_PREFIX=/usr/share/tesseract-ocr/4.00/tessdata/
+    export TESSDATA_PREFIX="$TESSDATA_PREFIX"
 
     echo "🔧 Tesseract environment configured:"
     echo "   TESSERACT_PATH=$TESSERACT_PATH"
     echo "   TESSDATA_PREFIX=$TESSDATA_PREFIX"
+
+    # List available language files
+    echo "📋 Available Tesseract language files:"
+    ls -la "$TESSDATA_PREFIX"/*.traineddata 2>/dev/null || echo "   No .traineddata files found"
+
 else
     echo "⚠️  Tesseract installation failed - OCR will be disabled"
 fi

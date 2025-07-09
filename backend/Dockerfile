@@ -6,9 +6,18 @@ RUN apt-get update && apt-get install -y \
     tesseract-ocr-eng \
     && rm -rf /var/lib/apt/lists/*
 
-# Set Tesseract environment variables
-ENV TESSDATA_PREFIX=/usr/share/tesseract-ocr/4.00/tessdata/
+# Find and set correct Tesseract data path
+RUN find /usr -name "*.traineddata" -type f 2>/dev/null | head -1 | xargs dirname > /tmp/tessdata_path || echo "/usr/share/tesseract-ocr/tessdata" > /tmp/tessdata_path
+
+# Set Tesseract environment variables with dynamic path detection
 ENV TESSERACT_PATH=/usr/bin/tesseract
+RUN export TESSDATA_PREFIX=$(cat /tmp/tessdata_path) && \
+    echo "TESSDATA_PREFIX=$TESSDATA_PREFIX" >> /etc/environment && \
+    echo "Found Tesseract data at: $TESSDATA_PREFIX" && \
+    ls -la $TESSDATA_PREFIX/ || echo "Tessdata directory not found, will use default"
+
+# Set fallback environment variable
+ENV TESSDATA_PREFIX=/usr/share/tesseract-ocr/tessdata
 
 WORKDIR /app
 

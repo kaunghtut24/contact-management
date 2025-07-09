@@ -35,7 +35,7 @@ services:
       - key: TESSERACT_PATH
         value: /usr/bin/tesseract
       - key: TESSDATA_PREFIX
-        value: /usr/share/tesseract-ocr/4.00/tessdata/
+        value: /usr/share/tesseract-ocr/tessdata
 
       # SpaCy Configuration
       - key: SPACY_MODEL

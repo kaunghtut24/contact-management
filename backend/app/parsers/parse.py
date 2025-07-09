@@ -58,11 +58,36 @@ try:
         pytesseract.pytesseract.tesseract_cmd = tesseract_path
         print(f"🔧 Found Tesseract at: {tesseract_path}")
 
-        # Set TESSDATA_PREFIX if provided
+        # Set TESSDATA_PREFIX with fallback detection
         tessdata_prefix = os.getenv('TESSDATA_PREFIX')
+        if not tessdata_prefix:
+            # Try to find tessdata directory automatically
+            common_paths = [
+                '/usr/share/tesseract-ocr/tessdata',
+                '/usr/share/tesseract-ocr/4.00/tessdata',
+                '/usr/share/tesseract-ocr/5.00/tessdata',
+                '/usr/share/tessdata',
+                '/usr/local/share/tessdata'
+            ]
+
+            for path in common_paths:
+                if os.path.isdir(path) and os.path.isfile(os.path.join(path, 'eng.traineddata')):
+                    tessdata_prefix = path
+                    print(f"🔍 Auto-detected TESSDATA_PREFIX: {tessdata_prefix}")
+                    break
+
         if tessdata_prefix:
             os.environ['TESSDATA_PREFIX'] = tessdata_prefix
             print(f"🔧 Set TESSDATA_PREFIX: {tessdata_prefix}")
+
+            # Verify the eng.traineddata file exists
+            eng_file = os.path.join(tessdata_prefix, 'eng.traineddata')
+            if os.path.isfile(eng_file):
+                print(f"✅ Found English language data: {eng_file}")
+            else:
+                print(f"⚠️  English language data not found at: {eng_file}")
+        else:
+            print("⚠️  TESSDATA_PREFIX not set and could not auto-detect")
 
         # Test if tesseract is actually working
         try:
