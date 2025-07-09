@@ -852,21 +852,7 @@ def update_contact(
     db.refresh(contact)
     return contact
 
-@app.delete("/contacts/{contact_id}")
-def delete_contact(
-    contact_id: int,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
-    """Delete a contact"""
-    contact = db.query(Contact).filter(Contact.id == contact_id).first()
-    if not contact:
-        raise HTTPException(status_code=404, detail="Contact not found")
-
-    db.delete(contact)
-    db.commit()
-    return {"message": "Contact deleted successfully"}
-
+# Batch operations must come before parameterized routes to avoid conflicts
 class BatchDeleteRequest(BaseModel):
     contact_ids: List[int]
 
@@ -896,6 +882,21 @@ def batch_delete_contacts(
         "failed_count": len(failed_ids),
         "failed_ids": failed_ids
     }
+
+@app.delete("/contacts/{contact_id}")
+def delete_contact(
+    contact_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Delete a contact"""
+    contact = db.query(Contact).filter(Contact.id == contact_id).first()
+    if not contact:
+        raise HTTPException(status_code=404, detail="Contact not found")
+
+    db.delete(contact)
+    db.commit()
+    return {"message": "Contact deleted successfully"}
 
 @app.get("/export")
 def export_contacts(
