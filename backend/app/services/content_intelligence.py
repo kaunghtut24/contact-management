@@ -75,68 +75,124 @@ class ContentIntelligenceService:
     def _add_business_patterns(self):
         """Add custom patterns for business entity recognition"""
         if not self.matcher:
+            logger.warning("⚠️ Matcher not available, skipping pattern addition")
             return
-        
-        # Designation patterns
-        designation_patterns = [
-            [{"LOWER": {"IN": ["ceo", "chief", "executive", "officer"]}},
-             {"LOWER": {"IN": ["executive", "officer"]}, "OP": "?"}],
-            [{"LOWER": {"IN": ["manager", "director", "president", "vice"]}},
-             {"LOWER": {"IN": ["president", "director"]}, "OP": "?"}],
-            [{"LOWER": {"IN": ["ambassador", "consul", "commissioner"]}},
-             {"LOWER": {"IN": ["general", "deputy"]}, "OP": "?"}],
-        ]
-        
-        # Company type patterns
-        company_patterns = [
-            [{"LOWER": {"IN": ["ltd", "limited", "inc", "incorporated", "corp", "corporation"]}},
-             {"LOWER": ".", "OP": "?"}],
-            [{"LOWER": {"IN": ["embassy", "consulate", "ministry", "department"]}},
-             {"LOWER": "of", "OP": "?"}, {"IS_ALPHA": True, "OP": "*"}],
-        ]
-        
-        # Add patterns to matcher
-        self.matcher.add("DESIGNATION", designation_patterns)
-        self.matcher.add("COMPANY_TYPE", company_patterns)
+
+        try:
+            # Designation patterns
+            designation_patterns = [
+                [{"LOWER": {"IN": ["ceo", "chief", "executive", "officer"]}}],
+                [{"LOWER": {"IN": ["manager", "director", "president", "vice"]}}],
+                [{"LOWER": {"IN": ["ambassador", "consul", "commissioner"]}}],
+                [{"LOWER": "senior"}, {"LOWER": {"IN": ["manager", "director", "engineer"]}}],
+                [{"LOWER": "deputy"}, {"LOWER": {"IN": ["commissioner", "director"]}}],
+            ]
+
+            # Company type patterns
+            company_patterns = [
+                [{"LOWER": {"IN": ["ltd", "limited", "inc", "incorporated", "corp", "corporation"]}}],
+                [{"LOWER": {"IN": ["embassy", "consulate", "ministry", "department"]}}],
+                [{"LOWER": "co"}, {"LOWER": "ltd"}],
+                [{"LOWER": {"IN": ["llc", "llp", "plc"]}}],
+            ]
+
+            # Email patterns (additional validation)
+            email_patterns = [
+                [{"LIKE_EMAIL": True}],
+            ]
+
+            # Phone patterns
+            phone_patterns = [
+                [{"SHAPE": "ddd-ddd-dddd"}],
+                [{"SHAPE": "(ddd) ddd-dddd"}],
+                [{"TEXT": {"REGEX": r"^\+?[\d\s\-\(\)]{8,15}$"}}],
+            ]
+
+            # Add patterns to matcher with error handling
+            try:
+                self.matcher.add("DESIGNATION", designation_patterns)
+                logger.debug("✅ Added designation patterns")
+            except Exception as e:
+                logger.warning(f"⚠️ Failed to add designation patterns: {e}")
+
+            try:
+                self.matcher.add("COMPANY_TYPE", company_patterns)
+                logger.debug("✅ Added company type patterns")
+            except Exception as e:
+                logger.warning(f"⚠️ Failed to add company type patterns: {e}")
+
+            try:
+                self.matcher.add("EMAIL_PATTERN", email_patterns)
+                logger.debug("✅ Added email patterns")
+            except Exception as e:
+                logger.warning(f"⚠️ Failed to add email patterns: {e}")
+
+            logger.info(f"✅ Added {len(self.matcher)} custom patterns to SpaCy matcher")
+
+        except Exception as e:
+            logger.error(f"❌ Failed to add business patterns: {e}")
+            # Create a minimal matcher to avoid warnings
+            try:
+                simple_pattern = [[{"LOWER": "email"}]]
+                self.matcher.add("SIMPLE", simple_pattern)
+                logger.info("✅ Added minimal pattern to avoid matcher warnings")
+            except:
+                logger.warning("⚠️ Could not add even simple patterns to matcher")
     
     def _initialize_llm_clients(self):
         """Initialize multiple LLM clients"""
+        logger.info("🔧 Initializing LLM clients...")
+
         # OpenAI (or OpenAI-compatible)
         openai_key = os.getenv("OPENAI_API_KEY")
+        logger.debug(f"OpenAI API key present: {bool(openai_key)}")
+
         if openai_key and LLM_AVAILABLE:
-            base_url = os.getenv("OPENAI_BASE_URL")
-            self.llm_clients["openai"] = {
-                "client": openai.OpenAI(api_key=openai_key, base_url=base_url),
-                "model": os.getenv("OPENAI_MODEL", "gpt-3.5-turbo"),
-                "type": "openai"
-            }
-            self.providers["openai"] = self.llm_clients["openai"]  # Alias
-            if not self.default_provider:
-                self.default_provider = "openai"
-            logger.info("✅ OpenAI client initialized")
-        
-        # Add other providers (Groq, Anthropic, etc.)
+            try:
+                base_url = os.getenv("OPENAI_BASE_URL")
+                self.llm_clients["openai"] = {
+                    "client": openai.OpenAI(api_key=openai_key, base_url=base_url),
+                    "model": os.getenv("OPENAI_MODEL", "gpt-3.5-turbo"),
+                    "type": "openai"
+                }
+                self.providers["openai"] = self.llm_clients["openai"]  # Alias
+                if not self.default_provider:
+                    self.default_provider = "openai"
+                logger.info("✅ OpenAI client initialized")
+            except Exception as e:
+                logger.error(f"❌ Failed to initialize OpenAI client: {e}")
+
+        # Add Groq provider
         groq_key = os.getenv("GROQ_API_KEY")
+        logger.debug(f"Groq API key present: {bool(groq_key)}")
+
         if groq_key and LLM_AVAILABLE:
-            self.llm_clients["groq"] = {
-                "client": openai.OpenAI(
-                    api_key=groq_key,
-                    base_url="https://api.groq.com/openai/v1"
-                ),
-                "model": os.getenv("GROQ_MODEL", "mixtral-8x7b-32768"),
-                "type": "openai_compatible"
-            }
-            self.providers["groq"] = self.llm_clients["groq"]  # Alias
-            if not self.default_provider:
-                self.default_provider = "groq"
-            logger.info("✅ Groq client initialized")
-        
+            try:
+                self.llm_clients["groq"] = {
+                    "client": openai.OpenAI(
+                        api_key=groq_key,
+                        base_url="https://api.groq.com/openai/v1"
+                    ),
+                    "model": os.getenv("GROQ_MODEL", "mixtral-8x7b-32768"),
+                    "type": "openai_compatible"
+                }
+                self.providers["groq"] = self.llm_clients["groq"]  # Alias
+                if not self.default_provider:
+                    self.default_provider = "groq"
+                logger.info("✅ Groq client initialized")
+            except Exception as e:
+                logger.error(f"❌ Failed to initialize Groq client: {e}")
+
         if not self.llm_clients:
-            logger.warning("⚠️ No LLM clients configured")
+            logger.warning("⚠️ No LLM clients configured - using SpaCy fallback only")
             self.default_provider = None
         else:
             logger.info(f"🤖 Default LLM provider: {self.default_provider}")
             logger.info(f"📊 Available providers: {list(self.providers.keys())}")
+
+        # Log environment variables for debugging
+        logger.debug(f"Environment check - OPENAI_API_KEY: {bool(os.getenv('OPENAI_API_KEY'))}")
+        logger.debug(f"Environment check - GROQ_API_KEY: {bool(os.getenv('GROQ_API_KEY'))}")
     
     async def analyze_content(self, text: str, file_type: str = "unknown") -> Dict[str, Any]:
         """
@@ -199,17 +255,23 @@ class ContentIntelligenceService:
                         "confidence": 0.8  # SpaCy confidence approximation
                     })
             
-            # Extract custom patterns
-            matches = self.matcher(doc)
-            for match_id, start, end in matches:
-                span = doc[start:end]
-                label = self.spacy_model.vocab.strings[match_id]
-                entities["CUSTOM"].append({
-                    "text": span.text,
-                    "label": label,
-                    "start": span.start_char,
-                    "end": span.end_char
-                })
+            # Extract custom patterns (with error handling)
+            try:
+                if self.matcher and len(self.matcher) > 0:
+                    matches = self.matcher(doc)
+                    for match_id, start, end in matches:
+                        span = doc[start:end]
+                        label = self.spacy_model.vocab.strings[match_id]
+                        entities["CUSTOM"].append({
+                            "text": span.text,
+                            "label": label,
+                            "start": span.start_char,
+                            "end": span.end_char
+                        })
+                else:
+                    logger.debug("⚠️ Matcher has no patterns, skipping custom pattern extraction")
+            except Exception as e:
+                logger.warning(f"⚠️ Custom pattern matching failed: {e}")
             
             # Extract emails and phones with regex (more reliable)
             email_pattern = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'
@@ -255,7 +317,11 @@ class ContentIntelligenceService:
         try:
             # Create enhanced prompt with SpaCy context
             prompt = self._create_enhanced_prompt(text, file_type, spacy_results)
-            
+            logger.debug(f"LLM prompt length: {len(prompt)}")
+            logger.debug(f"LLM prompt preview: {prompt[:300]}...")
+
+            logger.info(f"🤖 Calling {client_name} ({client_config['model']}) for contact extraction")
+
             response = await asyncio.to_thread(
                 client_config["client"].chat.completions.create,
                 model=client_config["model"],
@@ -263,8 +329,9 @@ class ContentIntelligenceService:
                 max_tokens=2000,
                 temperature=0.1
             )
-            
+
             result_text = response.choices[0].message.content
+            logger.info(f"📝 LLM response received, length: {len(result_text) if result_text else 0}")
 
             # Check for empty or None response
             if not result_text or not result_text.strip():
