@@ -1090,17 +1090,20 @@ async def upload_file(
     import asyncio
 
     try:
-        # Calculate overall timeout based on file size
+        # Calculate overall timeout based on file size (optimized for Render)
         content = await file.read()
         await file.seek(0)  # Reset file pointer
         file_size_mb = len(content) / (1024 * 1024)
 
+        # Use environment variables for timeout configuration (Render-optimized)
+        base_timeout = float(os.getenv("UPLOAD_TIMEOUT_OVERALL", "30"))
+
         if file_size_mb > 1.5:
-            overall_timeout = 45.0  # 45 seconds for files > 1.5MB
+            overall_timeout = min(base_timeout, 30.0)  # Max 30s for Render
         elif file_size_mb > 1.0:
-            overall_timeout = 35.0  # 35 seconds for files > 1MB
+            overall_timeout = min(base_timeout - 5, 25.0)  # Max 25s
         else:
-            overall_timeout = 30.0  # 30 seconds for smaller files
+            overall_timeout = min(base_timeout - 10, 20.0)  # Max 20s
 
         logger.info(f"Processing {file_size_mb:.1f}MB file with {overall_timeout}s overall timeout")
 
@@ -1226,14 +1229,20 @@ async def _process_upload_file(file: UploadFile, db: Session):
                     from app.parsers.parse import parse_image
                     parse_func = parse_image
 
-                # Calculate timeout based on file size
+                # Calculate timeout based on file size (Render-optimized)
                 file_size_mb = len(content) / (1024 * 1024)
+
+                # Use environment variables for OCR timeout (Render deployment)
+                small_timeout = int(os.getenv("OCR_TIMEOUT_SMALL", "15"))
+                medium_timeout = int(os.getenv("OCR_TIMEOUT_MEDIUM", "20"))
+                large_timeout = int(os.getenv("OCR_TIMEOUT_LARGE", "25"))
+
                 if file_size_mb > 1.5:
-                    ocr_timeout = 35  # 35 seconds for files > 1.5MB
+                    ocr_timeout = large_timeout  # 25s max for large files
                 elif file_size_mb > 1.0:
-                    ocr_timeout = 25  # 25 seconds for files > 1MB
+                    ocr_timeout = medium_timeout  # 20s for medium files
                 else:
-                    ocr_timeout = 20  # 20 seconds for smaller files
+                    ocr_timeout = small_timeout  # 15s for small files
 
                 logger.info(f"Processing {file_size_mb:.1f}MB image with {ocr_timeout}s timeout")
 

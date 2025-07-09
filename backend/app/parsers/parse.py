@@ -322,8 +322,16 @@ def parse_image_fast(file_content):
         file_size_mb = len(file_content) / (1024 * 1024)
         logger.info(f"Processing image: {original_size} pixels, {file_size_mb:.1f}MB, mode: {image.mode}")
 
-        # For large files, use more aggressive preprocessing
-        if file_size_mb > 1.0:  # Files larger than 1MB
+        # Render-optimized OCR configuration
+        is_render = os.getenv("ENVIRONMENT") == "production"
+
+        if is_render:
+            # Render deployment: use most aggressive optimization
+            logger.info("Render deployment detected, using maximum optimization")
+            processed_image = preprocess_business_card_image(image)
+            # Use fastest OCR settings for Render
+            ocr_config = '--psm 6 --oem 1 -c tessedit_do_invert=0'  # Legacy engine, no inversion
+        elif file_size_mb > 1.0:  # Files larger than 1MB
             logger.info("Large file detected, using aggressive optimization")
             processed_image = preprocess_business_card_image(image)
             # Use faster OCR settings for large files
@@ -356,11 +364,19 @@ def parse_image_fast(file_content):
         return []
 
 def preprocess_business_card_image(image):
-    """Ultra-fast preprocessing for business card images optimized for speed and large files"""
+    """Ultra-fast preprocessing optimized for Render deployment and large files"""
     try:
+        # Check if running on Render for maximum optimization
+        is_render = os.getenv("ENVIRONMENT") == "production"
+
         # For large images, resize first to reduce processing time
         width, height = image.size
-        max_dimension = 1200  # Reduce max size for faster processing
+
+        # More aggressive resizing for Render deployment
+        if is_render:
+            max_dimension = 800  # Smaller for Render to ensure speed
+        else:
+            max_dimension = 1200  # Standard size for local/other deployments
 
         # Resize large images first to speed up processing
         if width > max_dimension or height > max_dimension:
@@ -369,7 +385,7 @@ def preprocess_business_card_image(image):
             new_height = int(height * scale_factor)
             # Use NEAREST for maximum speed
             image = image.resize((new_width, new_height), Image.Resampling.NEAREST)
-            logger.info(f"Resized large image from {width}x{height} to {new_width}x{new_height}")
+            logger.info(f"Resized image from {width}x{height} to {new_width}x{new_height} (Render: {is_render})")
 
         # Convert to grayscale immediately for speed
         if image.mode != 'L':
@@ -377,12 +393,16 @@ def preprocess_business_card_image(image):
         else:
             gray_image = image
 
-        # Minimal processing for speed - just basic contrast
-        from PIL import ImageEnhance
-        enhancer = ImageEnhance.Contrast(gray_image)
-        enhanced_image = enhancer.enhance(1.1)  # Very light enhancement
-
-        return enhanced_image
+        # Skip enhancement for Render to save processing time
+        if is_render:
+            logger.info("Render deployment: skipping image enhancement for speed")
+            return gray_image
+        else:
+            # Minimal processing for speed - just basic contrast
+            from PIL import ImageEnhance
+            enhancer = ImageEnhance.Contrast(gray_image)
+            enhanced_image = enhancer.enhance(1.1)  # Very light enhancement
+            return enhanced_image
 
     except Exception as e:
         logger.warning(f"Image preprocessing failed: {e}, using original image")
