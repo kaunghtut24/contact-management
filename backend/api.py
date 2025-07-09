@@ -1237,7 +1237,13 @@ async def _process_with_content_intelligence(file: UploadFile, content: bytes, f
             elif not contact_data.get("categories"):
                 contact_data["categories"] = "Others"
 
-            # Map field names to database schema
+            # Map field names to database schema (fix field name mismatch)
+            categories = contact_data.get("categories", ["Others"])
+            if isinstance(categories, list):
+                category_str = categories[0] if categories else "Others"
+            else:
+                category_str = str(categories) if categories else "Others"
+
             db_contact_data = {
                 "name": contact_data.get("name", ""),
                 "designation": contact_data.get("designation", ""),
@@ -1246,7 +1252,7 @@ async def _process_with_content_intelligence(file: UploadFile, content: bytes, f
                 "phone": contact_data.get("phone", ""),
                 "website": contact_data.get("website", ""),
                 "address": contact_data.get("address", ""),
-                "categories": contact_data.get("categories", "Others"),
+                "category": category_str,  # Fixed: use 'category' not 'categories'
                 "notes": ""  # Add empty notes field
             }
 
