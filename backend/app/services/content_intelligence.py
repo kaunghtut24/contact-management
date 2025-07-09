@@ -209,6 +209,17 @@ class ContentIntelligenceService:
         # Step 3: Combine and validate results
         combined_results = self._combine_results(spacy_results, llm_results, text)
         
+        final_contacts = combined_results["contacts"]
+        logger.info(f"🎯 Final analysis complete: {len(final_contacts)} contacts extracted")
+
+        if final_contacts:
+            for i, contact in enumerate(final_contacts):
+                logger.info(f"📋 Contact {i+1}: {contact.get('name', 'No name')} | {contact.get('email', 'No email')} | {contact.get('phone', 'No phone')}")
+        else:
+            logger.warning("⚠️ No contacts found in final analysis")
+            logger.debug(f"SpaCy entities: {spacy_results.get('entities', {})}")
+            logger.debug(f"LLM results: {llm_results}")
+
         return {
             "success": True,
             "file_type": file_type,
@@ -586,6 +597,25 @@ JSON:"""
                 "categories": [self._infer_category({"company": orgs[0] if orgs else "", "designation": ""}, text)]
             }
             contacts.append(contact)
+
+        # If still no contacts, create a basic one from any available text
+        if not contacts:
+            logger.warning("⚠️ No entities found, creating basic contact from text")
+            # Try to extract basic info from text lines
+            lines = [line.strip() for line in text.split('\n') if line.strip()]
+            if lines:
+                contact = {
+                    "name": lines[0] if lines else "Unknown Contact",
+                    "designation": lines[1] if len(lines) > 1 else "",
+                    "company": lines[2] if len(lines) > 2 else "",
+                    "email": "",
+                    "phone": "",
+                    "website": "",
+                    "address": "",
+                    "categories": ["Others"]
+                }
+                contacts.append(contact)
+                logger.info(f"📝 Created basic contact from text: {contact['name']}")
 
         return {
             "contacts": contacts,

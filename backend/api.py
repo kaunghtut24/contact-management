@@ -1207,16 +1207,30 @@ async def _process_with_content_intelligence(file: UploadFile, content: bytes, f
 
     # Use Content Intelligence Service for analysis
     logger.info(f"Using Content Intelligence for {file_type} file: {filename}")
+    logger.info(f"📝 Extracted text length: {len(extracted_text)} characters")
+    logger.debug(f"📝 Extracted text preview: {extracted_text[:200]}...")
+
     analysis_result = await content_intelligence.analyze_content(extracted_text, file_type)
 
     if not analysis_result["success"]:
+        logger.error(f"❌ Content intelligence analysis failed: {analysis_result}")
         raise ValueError("Content intelligence analysis failed")
 
     # Create contacts from analysis results
     contacts_data = analysis_result["contacts"]
+    logger.info(f"📊 Content Intelligence extracted {len(contacts_data)} contacts")
 
-    for contact_data in contacts_data:
+    if contacts_data:
+        for i, contact in enumerate(contacts_data):
+            logger.info(f"👤 Contact {i+1}: {contact.get('name', 'No name')} - {contact.get('email', 'No email')}")
+    else:
+        logger.warning("⚠️ No contacts extracted from Content Intelligence")
+
+    for i, contact_data in enumerate(contacts_data):
         try:
+            logger.info(f"💾 Processing contact {i+1} for database insertion")
+            logger.debug(f"💾 Contact data: {contact_data}")
+
             # Ensure categories is a string (database expects string)
             if isinstance(contact_data.get("categories"), list):
                 contact_data["categories"] = ",".join(contact_data["categories"])
@@ -1236,14 +1250,28 @@ async def _process_with_content_intelligence(file: UploadFile, content: bytes, f
                 "notes": ""  # Add empty notes field
             }
 
+            logger.info(f"💾 Creating contact: {db_contact_data['name']} - {db_contact_data['email']}")
+
             # Create contact
             db_contact = Contact(**db_contact_data)
             db.add(db_contact)
             contacts_created += 1
-        except Exception as e:
-            errors.append(f"Error creating contact: {str(e)}")
+            logger.info(f"✅ Contact {i+1} added to database session")
 
-    db.commit()
+        except Exception as e:
+            error_msg = f"Error creating contact {i+1}: {str(e)}"
+            logger.error(f"❌ {error_msg}")
+            errors.append(error_msg)
+
+    logger.info(f"💾 Committing {contacts_created} contacts to database...")
+    try:
+        db.commit()
+        logger.info(f"✅ Successfully committed {contacts_created} contacts to database")
+    except Exception as e:
+        logger.error(f"❌ Database commit failed: {e}")
+        db.rollback()
+        errors.append(f"Database commit failed: {str(e)}")
+        contacts_created = 0
 
     return {
         "message": f"{file_type.title()} processed with Content Intelligence successfully",
