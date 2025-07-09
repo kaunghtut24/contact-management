@@ -246,17 +246,344 @@ def parse_vcf(file_content):
         return []
 
 def parse_image(file_content):
+    """Enhanced image parsing with preprocessing and multiple OCR strategies"""
     if not OCR_AVAILABLE:
         logger.warning("OCR not available. Cannot parse image files.")
         return []
 
     try:
+        # Load and preprocess image
         image = Image.open(io.BytesIO(file_content))
-        text = pytesseract.image_to_string(image)
-        return extract_contacts(text)
+
+        # Try multiple OCR strategies for better accuracy
+        extracted_texts = []
+
+        # Strategy 1: Original image with default settings
+        try:
+            text1 = pytesseract.image_to_string(image, config='--psm 6')
+            if text1.strip():
+                extracted_texts.append(("default", text1))
+        except:
+            pass
+
+        # Strategy 2: Preprocessed image for better OCR
+        try:
+            processed_image = preprocess_business_card_image(image)
+            text2 = pytesseract.image_to_string(processed_image, config='--psm 6')
+            if text2.strip():
+                extracted_texts.append(("preprocessed", text2))
+        except:
+            pass
+
+        # Strategy 3: Different PSM modes for complex layouts
+        try:
+            text3 = pytesseract.image_to_string(image, config='--psm 4')  # Single column text
+            if text3.strip():
+                extracted_texts.append(("single_column", text3))
+        except:
+            pass
+
+        # Strategy 4: OCR with data extraction
+        try:
+            data = pytesseract.image_to_data(image, output_type=pytesseract.Output.DICT)
+            text4 = extract_text_with_confidence(data)
+            if text4.strip():
+                extracted_texts.append(("high_confidence", text4))
+        except:
+            pass
+
+        # Combine and process all extracted texts
+        all_contacts = []
+        for strategy, text in extracted_texts:
+            logger.info(f"OCR Strategy '{strategy}' extracted {len(text)} characters")
+            contacts = extract_contacts_advanced(text, strategy)
+            all_contacts.extend(contacts)
+
+        # Deduplicate and merge contacts
+        merged_contacts = merge_duplicate_contacts(all_contacts)
+
+        logger.info(f"Final result: {len(merged_contacts)} contacts after processing {len(extracted_texts)} OCR strategies")
+        return merged_contacts
+
     except Exception as e:
         logger.error(f"Error parsing image: {e}")
         return []
+
+def preprocess_business_card_image(image):
+    """Preprocess business card image for better OCR accuracy"""
+    try:
+        # Convert to RGB if necessary
+        if image.mode != 'RGB':
+            image = image.convert('RGB')
+
+        # Resize image if too small (OCR works better on larger images)
+        width, height = image.size
+        if width < 800 or height < 600:
+            scale_factor = max(800/width, 600/height)
+            new_width = int(width * scale_factor)
+            new_height = int(height * scale_factor)
+            image = image.resize((new_width, new_height), Image.Resampling.LANCZOS)
+
+        # Convert to grayscale for better text recognition
+        gray_image = image.convert('L')
+
+        # Enhance contrast
+        from PIL import ImageEnhance
+        enhancer = ImageEnhance.Contrast(gray_image)
+        enhanced_image = enhancer.enhance(1.5)
+
+        # Apply sharpening
+        sharpness_enhancer = ImageEnhance.Sharpness(enhanced_image)
+        sharp_image = sharpness_enhancer.enhance(2.0)
+
+        return sharp_image
+
+    except Exception as e:
+        logger.warning(f"Image preprocessing failed: {e}, using original image")
+        return image
+
+def extract_text_with_confidence(ocr_data):
+    """Extract text from OCR data with confidence filtering"""
+    try:
+        texts = []
+        confidences = ocr_data['conf']
+        words = ocr_data['text']
+
+        for i, (word, conf) in enumerate(zip(words, confidences)):
+            # Only include words with confidence > 30
+            if conf > 30 and word.strip():
+                texts.append(word)
+
+        return ' '.join(texts)
+    except Exception as e:
+        logger.warning(f"Confidence filtering failed: {e}")
+        return ''
+
+def extract_contacts_advanced(text, strategy="default"):
+    """Advanced contact extraction with better pattern recognition for business cards"""
+    contacts = []
+
+    # Clean and normalize text
+    text = clean_ocr_text(text)
+    lines = [line.strip() for line in text.split('\n') if line.strip()]
+
+    if not lines:
+        return contacts
+
+    # Enhanced regex patterns for business cards
+    patterns = {
+        'email': r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b',
+        'phone': r'(?:(?:\+|00)[1-9]\d{0,3}[-.\s]?)?(?:\(?0?\d{1,4}\)?[-.\s]?)?\d{3,4}[-.\s]?\d{3,4}(?:[-.\s]?\d{1,4})?',
+        'mobile': r'(?:\+91|91)?[-.\s]?[6-9]\d{9}',
+        'website': r'(?:https?://)?(?:www\.)?[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z]{2,})+',
+        'designation': r'\b(?:CEO|CTO|CFO|Manager|Director|President|Vice President|VP|Senior|Junior|Executive|Officer|Head|Lead|Coordinator|Specialist|Analyst|Engineer|Developer|Designer|Consultant|Advisor)\b',
+        'company_indicators': r'\b(?:Ltd|Limited|Inc|Corporation|Corp|LLC|LLP|Pvt|Private|Company|Co|Group|Associates|Partners|Solutions|Services|Technologies|Tech|Systems|Enterprises|Industries)\b'
+    }
+
+    # Try to identify the structure of the business card
+    contact_info = {
+        'name': '',
+        'designation': '',
+        'company': '',
+        'email': '',
+        'phone': '',
+        'website': '',
+        'address': '',
+        'category': 'Business',
+        'notes': ''
+    }
+
+    # Process lines to extract information
+    address_lines = []
+    notes_lines = []
+
+    for i, line in enumerate(lines):
+        line_lower = line.lower()
+
+        # Extract email
+        email_match = re.search(patterns['email'], line, re.IGNORECASE)
+        if email_match and not contact_info['email']:
+            contact_info['email'] = email_match.group().lower()
+            continue
+
+        # Extract phone numbers
+        phone_match = re.search(patterns['phone'], line)
+        if phone_match and not contact_info['phone']:
+            phone = re.sub(r'[^\d+]', '', phone_match.group())
+            if len(phone) >= 10:
+                contact_info['phone'] = phone
+                continue
+
+        # Extract website
+        website_match = re.search(patterns['website'], line, re.IGNORECASE)
+        if website_match and not contact_info['website']:
+            website = website_match.group()
+            if not website.startswith('http'):
+                website = 'https://' + website
+            contact_info['website'] = website
+            continue
+
+        # Check for designation keywords
+        if re.search(patterns['designation'], line, re.IGNORECASE) and not contact_info['designation']:
+            contact_info['designation'] = line.strip()
+            continue
+
+        # Check for company indicators
+        if re.search(patterns['company_indicators'], line, re.IGNORECASE) and not contact_info['company']:
+            contact_info['company'] = line.strip()
+            continue
+
+        # Identify name (usually first non-empty line or line without special patterns)
+        if (not contact_info['name'] and i < 3 and
+            not re.search(patterns['email'], line) and
+            not re.search(patterns['phone'], line) and
+            not re.search(patterns['website'], line) and
+            len(line.split()) <= 4 and
+            not any(char.isdigit() for char in line)):
+            contact_info['name'] = line.strip()
+            continue
+
+        # Check if line looks like an address
+        if is_address_line(line):
+            address_lines.append(line)
+        else:
+            notes_lines.append(line)
+
+    # Post-process extracted information
+    contact_info['address'] = ' '.join(address_lines)
+    contact_info['notes'] = ' '.join(notes_lines)
+
+    # Smart fallbacks and improvements
+    contact_info = improve_contact_info(contact_info, lines)
+
+    # Only add contact if we have at least name or email
+    if contact_info['name'] or contact_info['email']:
+        contacts.append(contact_info)
+
+    return contacts
+
+def clean_ocr_text(text):
+    """Clean and normalize OCR text"""
+    # Remove excessive whitespace
+    text = re.sub(r'\s+', ' ', text)
+
+    # Fix common OCR errors
+    replacements = {
+        r'@': '@',  # Ensure @ symbol is correct
+        r'[|]': 'I',  # Common OCR mistake
+        r'0(?=[A-Za-z])': 'O',  # Zero to O in words
+        r'(?<=[A-Za-z])0': 'O',  # Zero to O in words
+        r'5(?=[A-Za-z])': 'S',  # 5 to S in words
+        r'1(?=[A-Za-z])': 'I',  # 1 to I in words
+    }
+
+    for pattern, replacement in replacements.items():
+        text = re.sub(pattern, replacement, text)
+
+    return text.strip()
+
+def is_address_line(line):
+    """Check if a line looks like part of an address"""
+    address_keywords = [
+        'street', 'st', 'road', 'rd', 'avenue', 'ave', 'lane', 'ln', 'drive', 'dr',
+        'building', 'bldg', 'floor', 'fl', 'suite', 'ste', 'apartment', 'apt',
+        'house', 'complex', 'center', 'centre', 'plaza', 'tower', 'block',
+        'near', 'opp', 'opposite', 'behind', 'beside', 'next to',
+        'city', 'state', 'country', 'pin', 'zip', 'postal'
+    ]
+
+    line_lower = line.lower()
+
+    # Check for address keywords
+    if any(keyword in line_lower for keyword in address_keywords):
+        return True
+
+    # Check for patterns that look like addresses
+    if re.search(r'\d+.*(?:street|road|avenue|lane|drive)', line_lower):
+        return True
+
+    # Check for postal codes
+    if re.search(r'\b\d{5,6}\b', line):
+        return True
+
+    return False
+
+def improve_contact_info(contact_info, lines):
+    """Improve contact information using context and smart guessing"""
+
+    # If no name found, try to guess from first meaningful line
+    if not contact_info['name']:
+        for line in lines[:3]:  # Check first 3 lines
+            if (not re.search(r'[@.]', line) and  # No email or website
+                not re.search(r'\d{3,}', line) and  # No long numbers
+                len(line.split()) <= 4 and  # Not too many words
+                line.strip()):
+                contact_info['name'] = line.strip()
+                break
+
+    # If no company found, look for lines with company indicators
+    if not contact_info['company']:
+        company_patterns = [
+            r'\b(?:Ltd|Limited|Inc|Corporation|Corp|LLC|LLP|Pvt|Private|Company|Co)\b',
+            r'\b(?:Group|Associates|Partners|Solutions|Services|Technologies|Tech)\b',
+            r'\b(?:Systems|Enterprises|Industries|International|Global)\b'
+        ]
+
+        for line in lines:
+            for pattern in company_patterns:
+                if re.search(pattern, line, re.IGNORECASE):
+                    contact_info['company'] = line.strip()
+                    break
+            if contact_info['company']:
+                break
+
+    # Clean up phone number
+    if contact_info['phone']:
+        phone = re.sub(r'[^\d+]', '', contact_info['phone'])
+        if phone.startswith('+91'):
+            phone = phone[3:]
+        elif phone.startswith('91') and len(phone) > 10:
+            phone = phone[2:]
+        contact_info['phone'] = phone[-10:] if len(phone) > 10 else phone
+
+    # Categorize based on content
+    if contact_info['company'] or contact_info['designation']:
+        contact_info['category'] = 'Business'
+    elif contact_info['email'] and any(domain in contact_info['email'] for domain in ['.gov', '.edu']):
+        contact_info['category'] = 'Government' if '.gov' in contact_info['email'] else 'Education'
+    else:
+        contact_info['category'] = 'Others'
+
+    return contact_info
+
+def merge_duplicate_contacts(contacts):
+    """Merge duplicate contacts from different OCR strategies"""
+    if not contacts:
+        return contacts
+
+    merged = []
+
+    for contact in contacts:
+        # Find if this contact already exists
+        existing = None
+        for merged_contact in merged:
+            if (contact['email'] and contact['email'] == merged_contact['email']) or \
+               (contact['phone'] and contact['phone'] == merged_contact['phone']) or \
+               (contact['name'] and contact['name'] == merged_contact['name']):
+                existing = merged_contact
+                break
+
+        if existing:
+            # Merge information, preferring non-empty values
+            for key in contact:
+                if contact[key] and not existing[key]:
+                    existing[key] = contact[key]
+                elif contact[key] and len(contact[key]) > len(existing[key]):
+                    existing[key] = contact[key]
+        else:
+            merged.append(contact)
+
+    return merged
 
 def extract_contacts_icc_format(text):
     """Specialized parser for ICC contact data format"""
@@ -374,6 +701,15 @@ def extract_contacts(text):
     # Check if this looks like ICC format data
     if 'icc_' in text.lower() and '@iccworld.com' in text.lower():
         return extract_contacts_icc_format(text)
+
+    # Try advanced extraction first (better for business cards)
+    try:
+        advanced_contacts = extract_contacts_advanced(text)
+        if advanced_contacts and len(advanced_contacts) > 0:
+            logger.info(f"Advanced parser extracted {len(advanced_contacts)} contacts")
+            return advanced_contacts
+    except Exception as e:
+        logger.warning(f"Advanced parsing failed: {e}, trying NLP parser")
 
     # Try NLP-based extraction for unstructured text
     try:
