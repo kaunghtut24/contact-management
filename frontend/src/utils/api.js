@@ -87,8 +87,8 @@ export const contactsApi = {
   export: () => api.get('/export', { responseType: 'blob' }),
 
   // Batch operations
-  batchDelete: (contactIds) => api.delete('/contacts/batch', { data: contactIds }),
-  batchExport: (contactIds) => api.post('/export/batch', contactIds, { responseType: 'blob' }),
+  batchDelete: (contactIds) => api.delete('/contacts/batch', { data: { contact_ids: contactIds } }),
+  batchExport: (contactIds) => api.post('/export/batch', { contact_ids: contactIds }, { responseType: 'blob' }),
 };
 
 export default api;
