@@ -1506,12 +1506,15 @@ async def _process_upload_file(file: UploadFile, db: Session):
             "fallback_used": True
         }
 
+        # Final response for all successful processing
         return {
-            "message": "File processed successfully",
+            "message": "File uploaded and processed successfully!",
             "filename": file.filename,
             "contacts_created": contacts_created,
             "errors": errors,
-            "total_errors": len(errors)
+            "total_errors": len(errors),
+            "success": True,
+            "processing_method": "content_intelligence"
         }
 
     except HTTPException:
