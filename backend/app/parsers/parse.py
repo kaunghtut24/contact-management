@@ -58,14 +58,24 @@ try:
         pytesseract.pytesseract.tesseract_cmd = tesseract_path
         print(f"🔧 Found Tesseract at: {tesseract_path}")
 
+        # Set TESSDATA_PREFIX if provided
+        tessdata_prefix = os.getenv('TESSDATA_PREFIX')
+        if tessdata_prefix:
+            os.environ['TESSDATA_PREFIX'] = tessdata_prefix
+            print(f"🔧 Set TESSDATA_PREFIX: {tessdata_prefix}")
+
         # Test if tesseract is actually working
         try:
             version = pytesseract.get_tesseract_version()
             OCR_AVAILABLE = True
             print(f"✅ Tesseract OCR is available: {version}")
+            if tessdata_prefix:
+                print(f"✅ Using Tesseract data from: {tessdata_prefix}")
         except Exception as e:
             OCR_AVAILABLE = False
             print(f"⚠️  Tesseract found but not working: {e}")
+            if tessdata_prefix:
+                print(f"   Check TESSDATA_PREFIX: {tessdata_prefix}")
     else:
         OCR_AVAILABLE = False
         print("⚠️  Tesseract not found in common locations")

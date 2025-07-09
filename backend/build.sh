@@ -7,13 +7,35 @@ echo "🚀 Starting Render build process..."
 
 # Install system dependencies for OCR
 echo "🔧 Installing system dependencies..."
-# Note: Render should automatically install packages from aptfile
-# If aptfile doesn't work, try manual installation
-if command -v apt-get >/dev/null 2>&1; then
-    apt-get update
-    apt-get install -y tesseract-ocr tesseract-ocr-eng
+
+# Install Tesseract OCR if not available
+if command -v tesseract >/dev/null 2>&1; then
+    echo "✅ Tesseract already available: $(tesseract --version | head -1)"
 else
-    echo "⚠️  apt-get not available, relying on aptfile for system dependencies"
+    echo "📦 Installing Tesseract OCR..."
+    if command -v apt-get >/dev/null 2>&1; then
+        apt-get update
+        apt-get install -y tesseract-ocr tesseract-ocr-eng
+        echo "✅ Tesseract installed successfully"
+    else
+        echo "⚠️  apt-get not available, relying on aptfile for installation"
+    fi
+fi
+
+# Verify Tesseract installation and set environment
+if command -v tesseract >/dev/null 2>&1; then
+    TESSERACT_VERSION=$(tesseract --version | head -1)
+    echo "✅ Tesseract verified: $TESSERACT_VERSION"
+
+    # Set Tesseract environment variables
+    export TESSERACT_PATH=/usr/bin/tesseract
+    export TESSDATA_PREFIX=/usr/share/tesseract-ocr/4.00/tessdata/
+
+    echo "🔧 Tesseract environment configured:"
+    echo "   TESSERACT_PATH=$TESSERACT_PATH"
+    echo "   TESSDATA_PREFIX=$TESSDATA_PREFIX"
+else
+    echo "⚠️  Tesseract installation failed - OCR will be disabled"
 fi
 
 # Install Python dependencies

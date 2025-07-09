@@ -15,7 +15,13 @@ api.interceptors.request.use(
   (config) => {
     // Debug: Log all API requests
     console.log('🚀 API Request:', config.method?.toUpperCase(), config.url, 'Base URL:', config.baseURL);
-    // Add any auth headers here if needed
+
+    // Add authentication header if token exists
+    const token = localStorage.getItem('token');
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+
     return config;
   },
   (error) => {
@@ -30,7 +36,16 @@ api.interceptors.response.use(
   },
   (error) => {
     // Handle common errors
-    if (error.response?.status === 404) {
+    if (error.response?.status === 401) {
+      console.error('Authentication failed - redirecting to login');
+      // Clear stored auth data
+      localStorage.removeItem('token');
+      localStorage.removeItem('user');
+      // Reload page to trigger login
+      window.location.reload();
+    } else if (error.response?.status === 403) {
+      console.error('Access forbidden');
+    } else if (error.response?.status === 404) {
       console.error('Resource not found');
     } else if (error.response?.status === 500) {
       console.error('Server error');

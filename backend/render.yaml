@@ -3,21 +3,46 @@ services:
     name: contact-management-backend
     env: python
     buildCommand: "./build.sh"
-    startCommand: "uvicorn app.main:app --host 0.0.0.0 --port $PORT"
+    startCommand: "uvicorn api:app --host 0.0.0.0 --port $PORT"
     envVars:
+      # Database Configuration
       - key: DATABASE_URL
         sync: false
+
+      # CORS Configuration
       - key: ALLOWED_ORIGINS
         sync: false
+
+      # Authentication Configuration (Set these in Render Dashboard)
+      - key: JWT_SECRET_KEY
+        sync: false
+      - key: ADMIN_USERNAME
+        sync: false
+      - key: ADMIN_EMAIL
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: ACCESS_TOKEN_EXPIRE_MINUTES
+        value: 30
+
+      # File Upload Configuration
       - key: MAX_FILE_SIZE
         value: 10485760
       - key: UPLOAD_DIR
         value: /tmp/uploads/
+
+      # OCR Configuration
       - key: TESSERACT_PATH
         value: /usr/bin/tesseract
+      - key: TESSDATA_PREFIX
+        value: /usr/share/tesseract-ocr/4.00/tessdata/
+
+      # SpaCy Configuration
+      - key: SPACY_MODEL
+        value: en_core_web_sm
+
+      # Production Settings
       - key: ENVIRONMENT
         value: production
       - key: DEBUG
         value: false
-      - key: SPACY_MODEL
-        value: en_core_web_sm
