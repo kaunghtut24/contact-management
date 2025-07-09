@@ -37,7 +37,12 @@ api.interceptors.response.use(
   (error) => {
     // Handle common errors
     if (error.response?.status === 401) {
-      console.error('Authentication failed - redirecting to login');
+      const errorDetail = error.response?.data?.detail || '';
+      if (errorDetail.includes('security update') || errorDetail.includes('signature')) {
+        console.warn('JWT signature changed - clearing auth and redirecting to login');
+      } else {
+        console.error('Authentication failed - redirecting to login');
+      }
       // Clear stored auth data
       localStorage.removeItem('token');
       localStorage.removeItem('user');
@@ -71,7 +76,7 @@ export const contactsApi = {
   // Delete contact
   delete: (id) => api.delete(`/contacts/${id}`),
   
-  // Upload file
+  // Upload file with extended timeout for OCR processing
   upload: (file) => {
     const formData = new FormData();
     formData.append('file', file);
@@ -79,6 +84,7 @@ export const contactsApi = {
       headers: {
         'Content-Type': 'multipart/form-data',
       },
+      timeout: 45000, // 45 seconds for file upload (backend times out at 30s)
     });
   },
   

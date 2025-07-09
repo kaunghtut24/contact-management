@@ -47,7 +47,24 @@ function UploadPage() {
       // Reset file input
       document.querySelector('input[type="file"]').value = '';
     } catch (error) {
-      setMessage('Error uploading file: ' + (error.response?.data?.detail || error.message));
+      let errorMessage = 'Error uploading file: ';
+
+      if (error.code === 'ECONNABORTED' || error.message.includes('timeout')) {
+        errorMessage += 'Upload timed out. Please try with a smaller image or check your connection.';
+      } else if (error.response?.data?.timeout) {
+        errorMessage += 'Processing timed out. Please try with a smaller or clearer image.';
+      } else if (error.response?.status === 401) {
+        errorMessage += 'Authentication expired. Please refresh the page and login again.';
+      } else {
+        const detail = error.response?.data?.detail || error.message;
+        if (detail.includes('timed out')) {
+          errorMessage += 'Processing timed out. Please try with a smaller image.';
+        } else {
+          errorMessage += detail;
+        }
+      }
+
+      setMessage(errorMessage);
     } finally {
       setUploading(false);
     }

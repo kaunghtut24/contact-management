@@ -254,13 +254,21 @@ def verify_token(token: str):
         )
     except JWTError as e:
         # Use proper logging instead of print
-        import logging
-        logging.warning(f"JWT verification failed: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid token. Please login again.",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+        error_msg = str(e)
+        if "Signature verification failed" in error_msg:
+            logger.info(f"JWT signature verification failed - likely due to secret key change: {error_msg}")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Session expired due to security update. Please login again.",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        else:
+            logger.warning(f"JWT verification failed: {error_msg}")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid token. Please login again.",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
     except Exception as e:
         # Catch any other unexpected errors
         import logging
@@ -1078,7 +1086,34 @@ async def upload_file(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Upload and process contact files (CSV, VCF, images, etc.)"""
+    """Upload and process contact files (CSV, VCF, images, etc.) with timeout handling"""
+    import asyncio
+
+    try:
+        # Add overall timeout for the entire upload process
+        return await asyncio.wait_for(_process_upload_file(file, db), timeout=30.0)
+    except asyncio.TimeoutError:
+        logger.error(f"Upload processing timed out for file: {file.filename}")
+        return {
+            "message": "File upload timed out",
+            "filename": file.filename,
+            "contacts_created": 0,
+            "errors": ["Upload processing timed out after 30 seconds. Please try with a smaller file."],
+            "total_errors": 1,
+            "timeout": True
+        }
+    except Exception as e:
+        logger.error(f"Upload processing failed for file {file.filename}: {str(e)}")
+        return {
+            "message": "File upload failed",
+            "filename": file.filename,
+            "contacts_created": 0,
+            "errors": [f"Upload failed: {str(e)}"],
+            "total_errors": 1
+        }
+
+async def _process_upload_file(file: UploadFile, db: Session):
+    """Internal function to process uploaded files"""
     try:
         # Check file size (10MB limit)
         max_size = 10 * 1024 * 1024  # 10MB
@@ -1164,32 +1199,63 @@ async def upload_file(
             db.commit()
 
         elif filename.endswith(('.png', '.jpg', '.jpeg', '.tiff', '.bmp')):
-            # Process image files with OCR
+            # Process image files with OCR (with timeout handling)
             try:
-                from app.parsers.parse import parse_image
-                contacts_data = parse_image(content)
+                import asyncio
+                from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 
-                for contact_data in contacts_data:
+                # Import the fast parsing function
+                try:
+                    from app.parsers.parse import parse_image_fast
+                    parse_func = parse_image_fast
+                except ImportError:
+                    # Fallback to regular parse_image if fast version not available
+                    from app.parsers.parse import parse_image
+                    parse_func = parse_image
+
+                # Use a thread pool to run OCR with timeout
+                with ThreadPoolExecutor(max_workers=1) as executor:
                     try:
-                        # Create contact
-                        db_contact = Contact(**contact_data)
-                        db.add(db_contact)
-                        contacts_created += 1
-                    except Exception as e:
-                        errors.append(f"Error creating contact from OCR: {str(e)}")
+                        # Run OCR with 20-second timeout (leaving 10 seconds for other operations)
+                        future = executor.submit(parse_func, content)
+                        contacts_data = future.result(timeout=20)
 
-                db.commit()
+                        for contact_data in contacts_data:
+                            try:
+                                # Create contact
+                                db_contact = Contact(**contact_data)
+                                db.add(db_contact)
+                                contacts_created += 1
+                            except Exception as e:
+                                errors.append(f"Error creating contact from OCR: {str(e)}")
 
-                return {
-                    "message": "Image processed with OCR successfully",
-                    "filename": file.filename,
-                    "contacts_created": contacts_created,
-                    "errors": errors,
-                    "total_errors": len(errors),
-                    "ocr_used": True
-                }
+                        db.commit()
+
+                        return {
+                            "message": "Image processed with OCR successfully",
+                            "filename": file.filename,
+                            "contacts_created": contacts_created,
+                            "errors": errors,
+                            "total_errors": len(errors),
+                            "ocr_used": True
+                        }
+
+                    except FutureTimeoutError:
+                        logger.warning(f"OCR processing timed out for file: {file.filename}")
+                        errors.append("OCR processing timed out after 20 seconds. Please try with a smaller or clearer image.")
+                        return {
+                            "message": "Image uploaded but OCR processing timed out",
+                            "filename": file.filename,
+                            "size": len(content),
+                            "contacts_created": 0,
+                            "errors": errors,
+                            "total_errors": len(errors),
+                            "ocr_used": False,
+                            "timeout": True
+                        }
 
             except Exception as e:
+                logger.error(f"OCR processing failed for file {file.filename}: {str(e)}")
                 errors.append(f"OCR processing failed: {str(e)}")
                 return {
                     "message": "Image uploaded but OCR processing failed",
