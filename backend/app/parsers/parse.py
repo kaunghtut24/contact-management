@@ -58,23 +58,36 @@ try:
         pytesseract.pytesseract.tesseract_cmd = tesseract_path
         print(f"🔧 Found Tesseract at: {tesseract_path}")
 
-        # Set TESSDATA_PREFIX with fallback detection
-        tessdata_prefix = os.getenv('TESSDATA_PREFIX')
-        if not tessdata_prefix:
-            # Try to find tessdata directory automatically
-            common_paths = [
-                '/usr/share/tesseract-ocr/tessdata',
-                '/usr/share/tesseract-ocr/4.00/tessdata',
-                '/usr/share/tesseract-ocr/5.00/tessdata',
-                '/usr/share/tessdata',
-                '/usr/local/share/tessdata'
-            ]
+        # Set TESSDATA_PREFIX to use bundled tessdata
+        # First, try to use bundled tessdata from the application directory
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        bundled_tessdata = os.path.join(script_dir, '..', '..', 'tessdata')
+        bundled_tessdata = os.path.abspath(bundled_tessdata)
 
-            for path in common_paths:
-                if os.path.isdir(path) and os.path.isfile(os.path.join(path, 'eng.traineddata')):
-                    tessdata_prefix = path
-                    print(f"🔍 Auto-detected TESSDATA_PREFIX: {tessdata_prefix}")
-                    break
+        tessdata_prefix = None
+
+        # Check if bundled tessdata exists and has required files
+        if os.path.isdir(bundled_tessdata) and os.path.isfile(os.path.join(bundled_tessdata, 'eng.traineddata')):
+            tessdata_prefix = bundled_tessdata
+            print(f"✅ Using bundled tessdata: {tessdata_prefix}")
+        else:
+            # Fallback to environment variable or system paths
+            tessdata_prefix = os.getenv('TESSDATA_PREFIX')
+            if not tessdata_prefix:
+                # Try to find tessdata directory automatically
+                common_paths = [
+                    '/usr/share/tesseract-ocr/tessdata',
+                    '/usr/share/tesseract-ocr/4.00/tessdata',
+                    '/usr/share/tesseract-ocr/5.00/tessdata',
+                    '/usr/share/tessdata',
+                    '/usr/local/share/tessdata'
+                ]
+
+                for path in common_paths:
+                    if os.path.isdir(path) and os.path.isfile(os.path.join(path, 'eng.traineddata')):
+                        tessdata_prefix = path
+                        print(f"🔍 Auto-detected system tessdata: {tessdata_prefix}")
+                        break
 
         if tessdata_prefix:
             os.environ['TESSDATA_PREFIX'] = tessdata_prefix
@@ -84,6 +97,12 @@ try:
             eng_file = os.path.join(tessdata_prefix, 'eng.traineddata')
             if os.path.isfile(eng_file):
                 print(f"✅ Found English language data: {eng_file}")
+                # List all available language files
+                try:
+                    lang_files = [f for f in os.listdir(tessdata_prefix) if f.endswith('.traineddata')]
+                    print(f"📋 Available languages: {', '.join([f.replace('.traineddata', '') for f in lang_files])}")
+                except:
+                    pass
             else:
                 print(f"⚠️  English language data not found at: {eng_file}")
         else:

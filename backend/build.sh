@@ -63,7 +63,15 @@ if command -v tesseract >/dev/null 2>&1; then
 
     # Set Tesseract environment variables
     export TESSERACT_PATH=/usr/bin/tesseract
-    export TESSDATA_PREFIX="$TESSDATA_PREFIX"
+
+    # Use bundled tessdata if available, otherwise use detected path
+    if [ -d "./tessdata" ] && [ -f "./tessdata/eng.traineddata" ]; then
+        export TESSDATA_PREFIX="./tessdata"
+        echo "✅ Using bundled tessdata directory"
+    else
+        export TESSDATA_PREFIX="$TESSDATA_PREFIX"
+        echo "🔍 Using system tessdata directory"
+    fi
 
     echo "🔧 Tesseract environment configured:"
     echo "   TESSERACT_PATH=$TESSERACT_PATH"
@@ -71,7 +79,11 @@ if command -v tesseract >/dev/null 2>&1; then
 
     # List available language files
     echo "📋 Available Tesseract language files:"
-    ls -la "$TESSDATA_PREFIX"/*.traineddata 2>/dev/null || echo "   No .traineddata files found"
+    if [ -d "$TESSDATA_PREFIX" ]; then
+        ls -la "$TESSDATA_PREFIX"/*.traineddata 2>/dev/null || echo "   No .traineddata files found"
+    else
+        echo "   Tessdata directory not found: $TESSDATA_PREFIX"
+    fi
 
 else
     echo "⚠️  Tesseract installation failed - OCR will be disabled"

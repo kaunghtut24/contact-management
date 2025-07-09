@@ -422,18 +422,43 @@ def ocr_status():
         if tesseract_path:
             pytesseract.pytesseract.tesseract_cmd = tesseract_path
 
+            # Set bundled tessdata path
+            bundled_tessdata = os.path.join(os.path.dirname(__file__), 'tessdata')
+            if os.path.isdir(bundled_tessdata) and os.path.isfile(os.path.join(bundled_tessdata, 'eng.traineddata')):
+                os.environ['TESSDATA_PREFIX'] = bundled_tessdata
+                tessdata_source = "bundled"
+                tessdata_path = bundled_tessdata
+            else:
+                tessdata_path = os.getenv('TESSDATA_PREFIX', 'system default')
+                tessdata_source = "system"
+
             try:
                 version = pytesseract.get_tesseract_version()
+
+                # List available languages
+                available_languages = []
+                if tessdata_source == "bundled":
+                    try:
+                        lang_files = [f for f in os.listdir(bundled_tessdata) if f.endswith('.traineddata')]
+                        available_languages = [f.replace('.traineddata', '') for f in lang_files]
+                    except:
+                        pass
+
                 return {
                     "ocr_available": True,
                     "tesseract_path": tesseract_path,
                     "tesseract_version": str(version),
+                    "tessdata_source": tessdata_source,
+                    "tessdata_path": tessdata_path,
+                    "available_languages": available_languages,
                     "message": "OCR is fully functional"
                 }
             except Exception as e:
                 return {
                     "ocr_available": False,
                     "tesseract_path": tesseract_path,
+                    "tessdata_source": tessdata_source,
+                    "tessdata_path": tessdata_path,
                     "error": str(e),
                     "message": "Tesseract found but not working"
                 }

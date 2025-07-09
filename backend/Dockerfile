@@ -31,6 +31,11 @@ RUN python -m spacy download en_core_web_sm
 # Copy application code
 COPY . .
 
+# Ensure tessdata directory is copied and accessible
+RUN ls -la tessdata/ && \
+    echo "✅ Tessdata files:" && \
+    ls -lh tessdata/*.traineddata
+
 # Create necessary directories
 RUN mkdir -p uploads logs
 

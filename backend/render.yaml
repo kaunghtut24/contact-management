@@ -31,11 +31,11 @@ services:
       - key: UPLOAD_DIR
         value: /tmp/uploads/
 
-      # OCR Configuration
+      # OCR Configuration (using bundled tessdata)
       - key: TESSERACT_PATH
         value: /usr/bin/tesseract
       - key: TESSDATA_PREFIX
-        value: /usr/share/tesseract-ocr/tessdata
+        value: ./tessdata
 
       # SpaCy Configuration
       - key: SPACY_MODEL
