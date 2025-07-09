@@ -131,13 +131,34 @@ class ContactOut(BaseModel):
     class Config:
         from_attributes = True
 
-# Security configuration
-SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key-change-in-production")
+# Security configuration with enhanced settings
+SECRET_KEY = os.getenv("JWT_SECRET_KEY")
+if not SECRET_KEY:
+    raise ValueError("JWT_SECRET_KEY environment variable is required for production")
+
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "30"))
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+# Enhanced password hashing with stronger settings
+pwd_context = CryptContext(
+    schemes=["bcrypt"],
+    deprecated="auto",
+    bcrypt__rounds=12,  # Increased rounds for better security
+    bcrypt__ident="2b"  # Use latest bcrypt variant
+)
 security = HTTPBearer()
+
+# Admin user configuration from environment variables
+ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
+ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "admin@company.com")
+ADMIN_FULL_NAME = os.getenv("ADMIN_FULL_NAME", "System Administrator")
+ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD")
+
+# Default user configuration from environment variables
+DEFAULT_USER_USERNAME = os.getenv("DEFAULT_USER_USERNAME")
+DEFAULT_USER_EMAIL = os.getenv("DEFAULT_USER_EMAIL")
+DEFAULT_USER_FULL_NAME = os.getenv("DEFAULT_USER_FULL_NAME")
+DEFAULT_USER_PASSWORD = os.getenv("DEFAULT_USER_PASSWORD")
 
 # Security functions
 def verify_password(plain_password: str, hashed_password: str) -> bool:
@@ -406,28 +427,130 @@ def get_current_user_info(current_user: User = Depends(get_current_user)):
 
 @app.post("/auth/create-admin")
 def create_admin_user(db: Session = Depends(get_db)):
-    """Create initial admin user (only if no users exist)"""
+    """Create initial admin user from environment variables (only if no users exist)"""
     user_count = db.query(User).count()
     if user_count > 0:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Admin user already exists or users are present"
         )
-    
+
+    # Validate required environment variables
+    if not ADMIN_PASSWORD:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="ADMIN_PASSWORD environment variable is required"
+        )
+
+    # Check if admin user already exists by username
+    existing_admin = db.query(User).filter(User.username == ADMIN_USERNAME).first()
+    if existing_admin:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"User with username '{ADMIN_USERNAME}' already exists"
+        )
+
     admin_user = User(
-        username="admin",
-        email="admin@example.com",
-        full_name="System Administrator",
-        hashed_password=get_password_hash("admin123"),
+        username=ADMIN_USERNAME,
+        email=ADMIN_EMAIL,
+        full_name=ADMIN_FULL_NAME,
+        hashed_password=get_password_hash(ADMIN_PASSWORD),
         role=UserRole.ADMIN,
         is_active=True
     )
-    
+
     db.add(admin_user)
     db.commit()
     db.refresh(admin_user)
-    
-    return {"message": "Admin user created successfully", "username": "admin", "password": "admin123"}
+
+    return {
+        "message": "Admin user created successfully",
+        "username": ADMIN_USERNAME,
+        "email": ADMIN_EMAIL,
+        "full_name": ADMIN_FULL_NAME,
+        "note": "Password is securely stored and hashed"
+    }
+
+@app.post("/auth/create-default-user")
+def create_default_user(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Create default user from environment variables (admin only)"""
+    # Only admin can create default users
+    if current_user.role != UserRole.ADMIN:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only admin users can create default users"
+        )
+
+    # Validate required environment variables
+    if not all([DEFAULT_USER_USERNAME, DEFAULT_USER_EMAIL, DEFAULT_USER_PASSWORD]):
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="DEFAULT_USER_USERNAME, DEFAULT_USER_EMAIL, and DEFAULT_USER_PASSWORD environment variables are required"
+        )
+
+    # Check if user already exists
+    existing_user = db.query(User).filter(
+        (User.username == DEFAULT_USER_USERNAME) | (User.email == DEFAULT_USER_EMAIL)
+    ).first()
+
+    if existing_user:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"User with username '{DEFAULT_USER_USERNAME}' or email '{DEFAULT_USER_EMAIL}' already exists"
+        )
+
+    default_user = User(
+        username=DEFAULT_USER_USERNAME,
+        email=DEFAULT_USER_EMAIL,
+        full_name=DEFAULT_USER_FULL_NAME or "Default User",
+        hashed_password=get_password_hash(DEFAULT_USER_PASSWORD),
+        role=UserRole.USER,
+        is_active=True
+    )
+
+    db.add(default_user)
+    db.commit()
+    db.refresh(default_user)
+
+    return {
+        "message": "Default user created successfully",
+        "username": DEFAULT_USER_USERNAME,
+        "email": DEFAULT_USER_EMAIL,
+        "full_name": default_user.full_name,
+        "role": "user",
+        "note": "Password is securely stored and hashed"
+    }
+
+@app.get("/security/info")
+def security_info(current_user: User = Depends(require_admin)):
+    """Get security configuration information (admin only)"""
+    return {
+        "password_hashing": {
+            "algorithm": "bcrypt",
+            "rounds": 12,
+            "variant": "2b"
+        },
+        "jwt": {
+            "algorithm": ALGORITHM,
+            "token_expiry_minutes": ACCESS_TOKEN_EXPIRE_MINUTES
+        },
+        "environment_variables": {
+            "jwt_secret_key_configured": bool(SECRET_KEY),
+            "admin_username_configured": bool(ADMIN_USERNAME),
+            "admin_password_configured": bool(ADMIN_PASSWORD),
+            "default_user_configured": bool(DEFAULT_USER_USERNAME and DEFAULT_USER_EMAIL and DEFAULT_USER_PASSWORD)
+        },
+        "security_features": [
+            "JWT-based authentication",
+            "bcrypt password hashing with 12 rounds",
+            "Role-based access control",
+            "Environment variable configuration",
+            "Secure secret management"
+        ]
+    }
 
 # Contact endpoints (all require authentication)
 @app.get("/contacts", response_model=List[ContactOut])
