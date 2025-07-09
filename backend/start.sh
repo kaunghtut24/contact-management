@@ -23,25 +23,47 @@ except OSError:
 echo "🔍 Checking OCR dependencies..."
 python -c "
 import os
+import shutil
 try:
     import pytesseract
     from PIL import Image
 
-    # Configure tesseract path
-    tesseract_path = os.getenv('TESSERACT_PATH', '/usr/bin/tesseract')
-    pytesseract.pytesseract.tesseract_cmd = tesseract_path
-    print(f'🔧 Tesseract path: {tesseract_path}')
+    def find_tesseract():
+        # Try environment variable first
+        env_path = os.getenv('TESSERACT_PATH')
+        if env_path and os.path.isfile(env_path):
+            return env_path
 
-    # Test tesseract
-    version = pytesseract.get_tesseract_version()
-    print(f'✅ Tesseract OCR available: {version}')
+        # Try shutil.which (Python's built-in)
+        which_result = shutil.which('tesseract')
+        if which_result:
+            return which_result
+
+        # Common Tesseract paths to try
+        common_paths = ['/usr/bin/tesseract', '/usr/local/bin/tesseract']
+        for path in common_paths:
+            if os.path.isfile(path):
+                return path
+        return None
+
+    tesseract_path = find_tesseract()
+
+    if tesseract_path:
+        pytesseract.pytesseract.tesseract_cmd = tesseract_path
+        print(f'🔧 Found Tesseract at: {tesseract_path}')
+
+        # Test tesseract
+        version = pytesseract.get_tesseract_version()
+        print(f'✅ Tesseract OCR available: {version}')
+    else:
+        print('⚠️  Tesseract not found - OCR will be disabled')
 
 except ImportError as e:
     print(f'⚠️  OCR dependencies missing: {e}')
-    print('Image parsing will be disabled')
+    print('   Install with: pip install pytesseract pillow')
 except Exception as e:
     print(f'⚠️  Tesseract configuration error: {e}')
-    print('Image parsing will be disabled')
+    print('   OCR will be disabled')
 "
 
 # Create necessary directories

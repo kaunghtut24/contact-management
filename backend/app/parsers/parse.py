@@ -12,26 +12,71 @@ try:
     import pytesseract
     from PIL import Image
     import os
+    import shutil
+    import subprocess
 
-    # Configure tesseract path from environment variable
-    tesseract_path = os.getenv('TESSERACT_PATH', '/usr/bin/tesseract')
+    def find_tesseract():
+        """Find Tesseract executable in common locations"""
+        # Try environment variable first
+        env_path = os.getenv('TESSERACT_PATH')
+        if env_path and os.path.isfile(env_path):
+            return env_path
+
+        # Common Tesseract paths to try
+        common_paths = [
+            '/usr/bin/tesseract',
+            '/usr/local/bin/tesseract',
+            '/opt/homebrew/bin/tesseract',  # macOS with Homebrew
+            'tesseract',  # System PATH
+        ]
+
+        # Try using 'which' command
+        try:
+            result = subprocess.run(['which', 'tesseract'],
+                                  capture_output=True, text=True, timeout=5)
+            if result.returncode == 0 and result.stdout.strip():
+                return result.stdout.strip()
+        except:
+            pass
+
+        # Try shutil.which (Python's built-in)
+        which_result = shutil.which('tesseract')
+        if which_result:
+            return which_result
+
+        # Try common paths
+        for path in common_paths:
+            if path != 'tesseract' and os.path.isfile(path):
+                return path
+
+        return None
+
+    # Find and configure Tesseract
+    tesseract_path = find_tesseract()
+
     if tesseract_path:
         pytesseract.pytesseract.tesseract_cmd = tesseract_path
-        print(f"🔧 Configured Tesseract path: {tesseract_path}")
+        print(f"🔧 Found Tesseract at: {tesseract_path}")
 
-    # Test if tesseract is actually available
-    try:
-        pytesseract.get_tesseract_version()
-        OCR_AVAILABLE = True
-        print("✅ Tesseract OCR is available and configured")
-    except Exception as e:
+        # Test if tesseract is actually working
+        try:
+            version = pytesseract.get_tesseract_version()
+            OCR_AVAILABLE = True
+            print(f"✅ Tesseract OCR is available: {version}")
+        except Exception as e:
+            OCR_AVAILABLE = False
+            print(f"⚠️  Tesseract found but not working: {e}")
+    else:
         OCR_AVAILABLE = False
-        print(f"⚠️  Tesseract OCR not available: {e}")
-        print(f"Tried path: {tesseract_path}")
+        print("⚠️  Tesseract not found in common locations")
+        print("   Checked paths: /usr/bin/tesseract, /usr/local/bin/tesseract, system PATH")
+        print("   OCR functionality will be disabled")
 
 except ImportError as e:
     OCR_AVAILABLE = False
-    print(f"Warning: OCR dependencies not available: {e}. Image parsing will be disabled.")
+    print(f"⚠️  OCR dependencies not available: {e}")
+    print("   Install with: pip install pytesseract pillow")
+    print("   Image parsing will be disabled")
 
 logger = logging.getLogger(__name__)
 
