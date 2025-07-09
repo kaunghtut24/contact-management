@@ -5,7 +5,7 @@ from fastapi import FastAPI, HTTPException, Depends, status, Query, UploadFile, 
 from fastapi.security import OAuth2PasswordRequestForm, HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
-from sqlalchemy import create_engine, Column, Integer, String, Boolean, DateTime, Enum, Text
+from sqlalchemy import create_engine, Column, Integer, String, Boolean, DateTime, Enum, Text, text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
 from pydantic import BaseModel
@@ -250,7 +250,7 @@ def get_db():
     db = SessionLocal()
     try:
         # Test the connection
-        db.execute("SELECT 1")
+        db.execute(text("SELECT 1"))
         yield db
     except Exception as e:
         db.rollback()
@@ -340,7 +340,7 @@ def database_health_check(db: Session = Depends(get_db)):
     """Check database connectivity"""
     try:
         # Test database connection
-        result = db.execute("SELECT 1 as test").fetchone()
+        result = db.execute(text("SELECT 1 as test")).fetchone()
         user_count = db.query(User).count()
         contact_count = db.query(Contact).count()
 
