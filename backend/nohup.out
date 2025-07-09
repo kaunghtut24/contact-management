@@ -1,0 +1,23 @@
+/home/yuthar/miniconda3/envs/contact-management/lib/python3.9/site-packages/spacy/util.py:910: UserWarning: [W095] Model 'en_core_web_sm' (3.8.0) was trained with spaCy v3.8.0 and may not be 100% compatible with the current version (3.7.2). If you see errors or degraded performance, download a newer compatible model or retrain your custom model with the current spaCy version. For more details and available updates, run: python -m spacy validate
+  warnings.warn(warn_msg)
+INFO:     Started server process [33562]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+[DEBUG] ALLOWED_ORIGINS: ['https://contact-management-six-alpha.vercel.app', 'http://localhost:5173', 'http://localhost:3000']
+🔧 Found Tesseract at: /usr/bin/tesseract
+✅ Using bundled tessdata: /home/yuthar/contact-management-system/backend/tessdata
+🔧 Set TESSDATA_PREFIX: /home/yuthar/contact-management-system/backend/tessdata
+✅ Found English language data: /home/yuthar/contact-management-system/backend/tessdata/eng.traineddata
+📋 Available languages: osd, eng
+✅ Tesseract OCR is available: 5.3.4
+✅ Using Tesseract data from: /home/yuthar/contact-management-system/backend/tessdata
+INFO:     127.0.0.1:49174 - "GET /health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49182 - "GET /health/db HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:49188 - "OPTIONS /auth/login HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49190 - "GET /auth/me HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:49202 - "GET /health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49216 - "GET /health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49228 - "GET /health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49242 - "GET /health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49252 - "GET /health HTTP/1.1" 200 OK

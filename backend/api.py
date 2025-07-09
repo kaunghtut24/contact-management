@@ -1,10 +1,11 @@
 """
 Clean, deployment-ready API with authentication and contact management
 """
-from fastapi import FastAPI, HTTPException, Depends, status, Query, UploadFile, File
+from fastapi import FastAPI, HTTPException, Depends, status, Query, UploadFile, File, Request
 from fastapi.security import OAuth2PasswordRequestForm, HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, JSONResponse
+from fastapi.exceptions import RequestValidationError
 from sqlalchemy import create_engine, Column, Integer, String, Boolean, DateTime, Enum, Text, text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
@@ -25,9 +26,18 @@ from io import StringIO
 warnings.filterwarnings("ignore", message=".*bcrypt.*", category=UserWarning)
 warnings.filterwarnings("ignore", message=".*error reading bcrypt version.*")
 
-# Suppress the specific passlib bcrypt warning
+# Configure logging for production
 import logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+
+# Suppress the specific passlib bcrypt warning
 logging.getLogger("passlib").setLevel(logging.ERROR)
+
+# Create logger for this module
+logger = logging.getLogger(__name__)
 
 # Database setup with connection pooling and SSL configuration
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./contact_management.sqlite")
@@ -168,7 +178,7 @@ SECRET_KEY = os.getenv("JWT_SECRET_KEY") or os.getenv("SECRET_KEY")
 if not SECRET_KEY:
     # For development/testing, use a default key with warning
     SECRET_KEY = "development-secret-key-change-in-production-minimum-32-characters"
-    print("⚠️  WARNING: Using default JWT secret key. Set JWT_SECRET_KEY environment variable in production!")
+    logger.warning("Using default JWT secret key. Set JWT_SECRET_KEY environment variable in production!")
 
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "480"))  # 8 hours default
@@ -182,7 +192,7 @@ try:
         bcrypt__ident="2b"  # Use latest bcrypt variant
     )
 except Exception as e:
-    print(f"⚠️  bcrypt configuration warning (non-critical): {e}")
+    logger.warning(f"bcrypt configuration warning (non-critical): {e}")
     # Fallback to basic bcrypt configuration
     pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 security = HTTPBearer()
@@ -218,6 +228,7 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     return encoded_jwt
 
 def verify_token(token: str):
+    """Verify JWT token and return username"""
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         username: str = payload.get("sub")
@@ -229,6 +240,7 @@ def verify_token(token: str):
             )
         return username
     except ExpiredSignatureError:
+        # Handle expired tokens gracefully
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Token has expired. Please login again.",
@@ -241,10 +253,21 @@ def verify_token(token: str):
             headers={"WWW-Authenticate": "Bearer"},
         )
     except JWTError as e:
-        print(f"JWT Error: {e}")  # Log for debugging
+        # Use proper logging instead of print
+        import logging
+        logging.warning(f"JWT verification failed: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid token. Please login again.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    except Exception as e:
+        # Catch any other unexpected errors
+        import logging
+        logging.error(f"Unexpected error in token verification: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication failed. Please login again.",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
@@ -259,27 +282,12 @@ def authenticate_user(db: Session, username: str, password: str):
         return False
     return user
 
-# Database dependency with retry logic
+# Simplified database dependency to avoid context manager issues
 def get_db():
+    """Database dependency with simplified error handling"""
     db = SessionLocal()
     try:
-        # Test the connection
-        db.execute(text("SELECT 1"))
         yield db
-    except Exception as e:
-        db.rollback()
-        print(f"Database connection error: {e}")
-        # Try to create a new session
-        try:
-            db.close()
-            db = SessionLocal()
-            yield db
-        except Exception as retry_error:
-            print(f"Database retry failed: {retry_error}")
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Database connection temporarily unavailable"
-            )
     finally:
         db.close()
 
@@ -287,21 +295,38 @@ async def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(security),
     db: Session = Depends(get_db)
 ):
-    token = credentials.credentials
-    username = verify_token(token)
-    user = get_user_by_username(db, username=username)
-    if user is None:
+    """Get current authenticated user with improved error handling"""
+    try:
+        token = credentials.credentials
+        username = verify_token(token)
+
+        # Query user with error handling
+        user = get_user_by_username(db, username=username)
+        if user is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="User not found",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+
+        if not user.is_active:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Inactive user"
+            )
+
+        return user
+    except HTTPException:
+        # Re-raise HTTP exceptions as-is
+        raise
+    except Exception as e:
+        # Handle any unexpected database or other errors
+        import logging
+        logging.error(f"Error in get_current_user: {str(e)}")
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="User not found",
-            headers={"WWW-Authenticate": "Bearer"},
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Authentication service temporarily unavailable"
         )
-    if not user.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Inactive user"
-        )
-    return user
 
 def require_admin(current_user: User = Depends(get_current_user)):
     if current_user.role != UserRole.ADMIN:
@@ -330,10 +355,9 @@ else:
     ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "https://contact-management-six-alpha.vercel.app").split(",")
     ALLOW_CREDENTIALS = True
 
-print(f"🌐 CORS Configuration:")
-print(f"   Environment: {ENVIRONMENT}")
-print(f"   Allowed Origins: {ALLOWED_ORIGINS}")
-print(f"   Allow Credentials: {ALLOW_CREDENTIALS}")
+logger.info(f"CORS Configuration - Environment: {ENVIRONMENT}")
+logger.info(f"CORS Allowed Origins: {ALLOWED_ORIGINS}")
+logger.info(f"CORS Allow Credentials: {ALLOW_CREDENTIALS}")
 
 app.add_middleware(
     CORSMiddleware,
@@ -341,16 +365,67 @@ app.add_middleware(
     allow_credentials=ALLOW_CREDENTIALS,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
+    expose_headers=["*"],
+    max_age=3600,  # Cache preflight requests for 1 hour
 )
+
+# Custom exception handlers
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    """Handle HTTP exceptions with proper CORS headers"""
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": exc.detail},
+        headers={"Access-Control-Allow-Origin": "*"}
+    )
+
+@app.exception_handler(Exception)
+async def general_exception_handler(request: Request, exc: Exception):
+    """Handle unexpected errors"""
+    logger.error(f"Unexpected error: {str(exc)}")
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Internal server error"},
+        headers={"Access-Control-Allow-Origin": "*"}
+    )
+
+# Custom exception handlers
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    """Handle HTTP exceptions with proper CORS headers"""
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": exc.detail},
+        headers={"Access-Control-Allow-Origin": "*"}
+    )
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    """Handle validation errors"""
+    return JSONResponse(
+        status_code=422,
+        content={"detail": "Validation error", "errors": exc.errors()},
+        headers={"Access-Control-Allow-Origin": "*"}
+    )
+
+@app.exception_handler(Exception)
+async def general_exception_handler(request: Request, exc: Exception):
+    """Handle unexpected errors"""
+    logger.error(f"Unexpected error: {str(exc)}")
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Internal server error"},
+        headers={"Access-Control-Allow-Origin": "*"}
+    )
 
 # Create tables
 Base.metadata.create_all(bind=engine)
 
 # Startup message
-print("🚀 Contact Management System API v2.0 starting...")
-print("🔐 Authentication: JWT with bcrypt password hashing")
-print("🗄️  Database: Connected and tables created")
-print("✅ System ready for requests")
+logger.info("Contact Management System API v2.0 starting...")
+logger.info("Authentication: JWT with bcrypt password hashing")
+logger.info("Database: Connected and tables created")
+logger.info("System ready for requests")
 
 # Root endpoint
 @app.get("/")
@@ -360,7 +435,12 @@ def root():
 # Health check
 @app.get("/health")
 def health_check():
-    return {"status": "healthy", "message": "Contact Management System API v2.0 is running"}
+    """Basic health check endpoint"""
+    return {
+        "status": "healthy",
+        "message": "Contact Management System API v2.0 is running",
+        "timestamp": datetime.utcnow().isoformat()
+    }
 
 # Database health check
 @app.get("/health/db")
