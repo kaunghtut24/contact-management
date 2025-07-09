@@ -1172,6 +1172,87 @@ async def _process_with_content_intelligence(file: UploadFile, content: bytes, f
             ocr_result = await ocr_client.process_image(filename, content)
             if ocr_result["success"]:
                 extracted_text = ocr_result["data"]["ocr_result"]["text"]
+
+                # Check if OCR service returned structured contacts
+                ocr_contacts = ocr_result["data"].get("contacts", [])
+                if ocr_contacts:
+                    logger.info(f"🎯 OCR service returned {len(ocr_contacts)} structured contacts")
+                    for i, contact in enumerate(ocr_contacts):
+                        logger.info(f"📋 OCR Contact {i+1}: {contact.get('name')} - {contact.get('email')}")
+
+                    # Use OCR service contacts directly instead of running Content Intelligence again
+                    contacts_data = ocr_contacts
+                    logger.info(f"✅ Using OCR service contacts directly, skipping Content Intelligence")
+
+                    # Skip to database insertion
+                    for i, contact_data in enumerate(contacts_data):
+                        try:
+                            logger.info(f"💾 Processing OCR contact {i+1} for database insertion")
+                            logger.info(f"💾 OCR contact data: {contact_data}")
+
+                            # Map OCR contact data to database schema
+                            categories = contact_data.get("categories", ["Others"])
+                            if isinstance(categories, list):
+                                category_str = categories[0] if categories else "Others"
+                            else:
+                                category_str = str(categories) if categories else "Others"
+
+                            db_contact_data = {
+                                "name": contact_data.get("name", ""),
+                                "designation": contact_data.get("designation", ""),
+                                "company": contact_data.get("company", ""),
+                                "email": contact_data.get("email", ""),
+                                "phone": contact_data.get("phone", ""),
+                                "website": contact_data.get("website", ""),
+                                "address": contact_data.get("address", ""),
+                                "category": category_str,
+                                "notes": ""
+                            }
+
+                            logger.info(f"💾 Final OCR database contact data:")
+                            for field, value in db_contact_data.items():
+                                logger.info(f"   {field}: {repr(value)}")
+
+                            # Create contact
+                            db_contact = Contact(**db_contact_data)
+                            db.add(db_contact)
+                            contacts_created += 1
+                            logger.info(f"✅ OCR Contact {i+1} added to database session")
+
+                        except Exception as e:
+                            error_msg = f"Error creating OCR contact {i+1}: {str(e)}"
+                            logger.error(f"❌ {error_msg}")
+                            errors.append(error_msg)
+
+                    # Commit OCR contacts
+                    logger.info(f"💾 Committing {contacts_created} OCR contacts to database...")
+                    try:
+                        db.commit()
+                        logger.info(f"✅ Successfully committed {contacts_created} OCR contacts to database")
+
+                        return {
+                            "message": "File uploaded and processed successfully!",
+                            "filename": filename,
+                            "contacts_created": contacts_created,
+                            "errors": errors,
+                            "total_errors": len(errors),
+                            "processing_method": "ocr_microservice_direct"
+                        }
+                    except Exception as e:
+                        logger.error(f"❌ Database commit failed: {e}")
+                        db.rollback()
+                        errors.append(f"Database commit failed: {str(e)}")
+                        contacts_created = 0
+
+                        return {
+                            "message": "File uploaded but database save failed",
+                            "filename": filename,
+                            "contacts_created": 0,
+                            "errors": errors,
+                            "total_errors": len(errors)
+                        }
+                else:
+                    logger.info("📝 OCR service returned text only, will use Content Intelligence")
             else:
                 errors.append(f"OCR processing failed: {ocr_result['error']}")
                 extracted_text = ""
@@ -1229,7 +1310,18 @@ async def _process_with_content_intelligence(file: UploadFile, content: bytes, f
     for i, contact_data in enumerate(contacts_data):
         try:
             logger.info(f"💾 Processing contact {i+1} for database insertion")
-            logger.debug(f"💾 Contact data: {contact_data}")
+            logger.info(f"💾 Raw contact data: {contact_data}")
+
+            # Log each field individually for debugging
+            logger.info(f"🔍 Field analysis:")
+            logger.info(f"   name: {repr(contact_data.get('name', ''))}")
+            logger.info(f"   designation: {repr(contact_data.get('designation', ''))}")
+            logger.info(f"   company: {repr(contact_data.get('company', ''))}")
+            logger.info(f"   email: {repr(contact_data.get('email', ''))}")
+            logger.info(f"   phone: {repr(contact_data.get('phone', ''))}")
+            logger.info(f"   website: {repr(contact_data.get('website', ''))}")
+            logger.info(f"   address: {repr(contact_data.get('address', ''))}")
+            logger.info(f"   categories: {repr(contact_data.get('categories', []))}")
 
             # Ensure categories is a string (database expects string)
             if isinstance(contact_data.get("categories"), list):
@@ -1255,6 +1347,10 @@ async def _process_with_content_intelligence(file: UploadFile, content: bytes, f
                 "category": category_str,  # Fixed: use 'category' not 'categories'
                 "notes": ""  # Add empty notes field
             }
+
+            logger.info(f"💾 Final database contact data:")
+            for field, value in db_contact_data.items():
+                logger.info(f"   {field}: {repr(value)}")
 
             logger.info(f"💾 Creating contact: {db_contact_data['name']} - {db_contact_data['email']}")
 
