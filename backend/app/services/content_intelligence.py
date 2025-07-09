@@ -264,8 +264,16 @@ class ContentIntelligenceService:
                 temperature=0.1
             )
             
-            result_text = response.choices[0].message.content.strip()
-            
+            result_text = response.choices[0].message.content
+
+            # Check for empty or None response
+            if not result_text or not result_text.strip():
+                logger.warning(f"LLM ({client_name}) returned empty response")
+                raise ValueError("Empty response from LLM")
+
+            result_text = result_text.strip()
+            logger.debug(f"LLM ({client_name}) response: {result_text[:200]}...")
+
             # Parse JSON response with improved error handling
             try:
                 # Clean the response text
@@ -303,9 +311,17 @@ class ContentIntelligenceService:
                         except json.JSONDecodeError:
                             continue
 
-                # If all JSON extraction fails, log the response and fall back
+                # If all JSON extraction fails, create a basic contact from the text
                 logger.warning(f"All JSON extraction failed. Full response: {result_text}")
-                raise ValueError(f"No valid JSON found in LLM response: {result_text[:100]}...")
+                logger.info("Creating fallback contact from LLM response text")
+
+                # Extract basic info from the response text
+                fallback_contact = self._create_fallback_contact_from_text(result_text, spacy_results)
+                return {
+                    "contacts": [fallback_contact] if fallback_contact else [],
+                    "method": f"llm_{client_name}_fallback",
+                    "model": client_config["model"]
+                }
             
         except Exception as e:
             logger.error(f"LLM extraction failed with {client_name}: {e}")
@@ -331,25 +347,24 @@ SpaCy Analysis Context:
 - Phones found: {phones}
 """
         
-        return f"""You are an expert contact information extractor. Extract structured contact information from the following text and return ONLY a valid JSON array.
+        return f"""Extract contact information and return ONLY valid JSON array.
 
 {context}
 
-CRITICAL REQUIREMENTS:
-1. Return ONLY a JSON array, no explanations or other text
-2. Each contact must have these exact fields: name, designation, company, email, phone, website, address, categories
-3. Categories must be from this list: {self.business_categories}
-4. Use empty string "" for missing fields
-5. Categories must be an array of strings
-6. Ensure valid JSON format
+STRICT RULES:
+1. Return ONLY JSON array - no other text, explanations, or formatting
+2. Each contact needs: name, designation, company, email, phone, website, address, categories
+3. Use "" for empty fields
+4. Categories from: {self.business_categories}
+5. Categories must be array: ["category1", "category2"]
 
-Example format:
-[{{"name": "John Doe", "designation": "Manager", "company": "ABC Corp", "email": "john@abc.com", "phone": "+1234567890", "website": "", "address": "123 Main St", "categories": ["Others"]}}]
+EXAMPLE OUTPUT:
+[{{"name":"John Doe","designation":"Manager","company":"ABC Corp","email":"john@abc.com","phone":"+1234567890","website":"","address":"123 Main St","categories":["Others"]}}]
 
-Text to analyze:
+TEXT:
 {text}
 
-Return only the JSON array:"""
+JSON:"""
 
     def _combine_results(self, spacy_results: Dict, llm_results: Dict, original_text: str) -> Dict[str, Any]:
         """Combine SpaCy and LLM results for optimal accuracy"""
@@ -540,6 +555,69 @@ Return only the JSON array:"""
         if entities.get("ORG"): entity_boost += 0.1
 
         return min(1.0, avg_score + entity_boost)
+
+    def _create_fallback_contact_from_text(self, llm_text: str, spacy_results: Dict) -> Optional[Dict]:
+        """Create a basic contact when LLM returns invalid JSON but useful text"""
+        try:
+            # Get entities from SpaCy
+            entities = spacy_results.get("entities", {})
+
+            # Extract basic info from LLM text and SpaCy entities
+            contact = {
+                "name": "",
+                "designation": "",
+                "company": "",
+                "email": "",
+                "phone": "",
+                "website": "",
+                "address": "",
+                "categories": ["Others"]
+            }
+
+            # Use SpaCy entities as primary source
+            if entities.get("EMAIL"):
+                contact["email"] = entities["EMAIL"][0]["text"]
+            if entities.get("PHONE"):
+                contact["phone"] = entities["PHONE"][0]["text"]
+            if entities.get("PERSON"):
+                contact["name"] = entities["PERSON"][0]["text"]
+            if entities.get("ORG"):
+                contact["company"] = entities["ORG"][0]["text"]
+
+            # Try to extract additional info from LLM text
+            lines = llm_text.split('\n')
+            for line in lines:
+                line = line.strip()
+                if not line:
+                    continue
+
+                # Look for email if not found
+                if not contact["email"] and '@' in line:
+                    email_match = re.search(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b', line, re.IGNORECASE)
+                    if email_match:
+                        contact["email"] = email_match.group()
+
+                # Look for phone if not found
+                if not contact["phone"] and any(char.isdigit() for char in line):
+                    phone_match = re.search(r'[\+]?[1-9][\d\s\-\(\)]{7,14}', line)
+                    if phone_match:
+                        contact["phone"] = phone_match.group().strip()
+
+                # Look for name if not found (lines with proper case, no special chars)
+                if not contact["name"] and len(line.split()) <= 3 and line.replace(' ', '').isalpha():
+                    if line[0].isupper():  # Likely a name
+                        contact["name"] = line
+
+            # Only return contact if we have at least email or phone
+            if contact["email"] or contact["phone"] or contact["name"]:
+                logger.info(f"Created fallback contact: {contact['name']} - {contact['email']}")
+                return contact
+
+            return None
+
+        except Exception as e:
+            logger.error(f"Fallback contact creation failed: {e}")
+            return None
 
 # Global instance
 content_intelligence = ContentIntelligenceService()

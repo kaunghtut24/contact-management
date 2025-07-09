@@ -1090,38 +1090,29 @@ async def upload_file(
     import asyncio
 
     try:
-        # Calculate overall timeout based on file size (optimized for Render)
+        # Content Intelligence Service handles all processing - no timeouts needed
+        logger.info(f"🧠 Processing file with Content Intelligence Service: {file.filename}")
+
+        # Simple file size check (10MB limit)
         content = await file.read()
         await file.seek(0)  # Reset file pointer
         file_size_mb = len(content) / (1024 * 1024)
 
-        # Reject files that are too large for Render processing
-        is_render = os.getenv("ENVIRONMENT") == "production"
-        max_size_mb = 1.5 if is_render else 2.0
-
-        if file_size_mb > max_size_mb:
-            logger.warning(f"File too large for processing: {file_size_mb:.1f}MB (max: {max_size_mb}MB)")
+        if file_size_mb > 10.0:  # 10MB hard limit
+            logger.warning(f"File too large: {file_size_mb:.1f}MB (max: 10MB)")
             return {
                 "message": "File too large for processing",
                 "filename": file.filename,
                 "contacts_created": 0,
-                "errors": [f"File size {file_size_mb:.1f}MB exceeds maximum {max_size_mb}MB for reliable processing on our servers. Please compress or resize the image."],
+                "errors": [f"File size {file_size_mb:.1f}MB exceeds maximum 10MB limit."],
                 "total_errors": 1,
                 "file_too_large": True
             }
 
-        # Use environment variables for timeout configuration (Render-optimized)
-        base_timeout = float(os.getenv("UPLOAD_TIMEOUT_OVERALL", "30"))
+        logger.info(f"📊 Processing {file_size_mb:.1f}MB file: {file.filename}")
 
-        if file_size_mb > 1.0:
-            overall_timeout = min(base_timeout - 5, 25.0)  # Max 25s for 1-1.5MB
-        else:
-            overall_timeout = min(base_timeout - 10, 20.0)  # Max 20s for <1MB
-
-        logger.info(f"Processing {file_size_mb:.1f}MB file with {overall_timeout}s overall timeout")
-
-        # Add overall timeout for the entire upload process
-        return await asyncio.wait_for(_process_upload_file(file, db), timeout=overall_timeout)
+        # Process with Content Intelligence Service (no timeout wrapper needed)
+        return await _process_upload_file(file, db)
     except asyncio.TimeoutError:
         logger.error(f"Upload processing timed out for file: {file.filename}")
         return {
