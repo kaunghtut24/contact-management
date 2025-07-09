@@ -71,7 +71,7 @@ export const contactsApi = {
   // Delete contact
   delete: (id) => api.delete(`/contacts/${id}`),
   
-  // Upload file
+  // Upload file with extended timeout for OCR processing
   upload: (file) => {
     const formData = new FormData();
     formData.append('file', file);
@@ -79,6 +79,7 @@ export const contactsApi = {
       headers: {
         'Content-Type': 'multipart/form-data',
       },
+      timeout: 60000, // 60 seconds for file upload (OCR can be slow)
     });
   },
   

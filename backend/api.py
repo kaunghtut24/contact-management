@@ -1084,30 +1084,51 @@ async def upload_file(
             db.commit()
 
         elif filename.endswith(('.png', '.jpg', '.jpeg', '.tiff', '.bmp')):
-            # Process image files with OCR
+            # Process image files with OCR (with timeout handling)
             try:
-                from app.parsers.parse import parse_image
-                contacts_data = parse_image(content)
+                import asyncio
+                from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
+                from app.parsers.parse import parse_image_fast
 
-                for contact_data in contacts_data:
+                # Use a thread pool to run OCR with timeout
+                with ThreadPoolExecutor(max_workers=1) as executor:
                     try:
-                        # Create contact
-                        db_contact = Contact(**contact_data)
-                        db.add(db_contact)
-                        contacts_created += 1
-                    except Exception as e:
-                        errors.append(f"Error creating contact from OCR: {str(e)}")
+                        # Run OCR with 25-second timeout (leaving 5 seconds for other operations)
+                        future = executor.submit(parse_image_fast, content)
+                        contacts_data = future.result(timeout=25)
 
-                db.commit()
+                        for contact_data in contacts_data:
+                            try:
+                                # Create contact
+                                db_contact = Contact(**contact_data)
+                                db.add(db_contact)
+                                contacts_created += 1
+                            except Exception as e:
+                                errors.append(f"Error creating contact from OCR: {str(e)}")
 
-                return {
-                    "message": "Image processed with OCR successfully",
-                    "filename": file.filename,
-                    "contacts_created": contacts_created,
-                    "errors": errors,
-                    "total_errors": len(errors),
-                    "ocr_used": True
-                }
+                        db.commit()
+
+                        return {
+                            "message": "Image processed with OCR successfully",
+                            "filename": file.filename,
+                            "contacts_created": contacts_created,
+                            "errors": errors,
+                            "total_errors": len(errors),
+                            "ocr_used": True
+                        }
+
+                    except FutureTimeoutError:
+                        errors.append("OCR processing timed out after 25 seconds")
+                        return {
+                            "message": "Image uploaded but OCR processing timed out",
+                            "filename": file.filename,
+                            "size": len(content),
+                            "contacts_created": 0,
+                            "errors": errors,
+                            "total_errors": len(errors),
+                            "ocr_used": False,
+                            "timeout": True
+                        }
 
             except Exception as e:
                 errors.append(f"OCR processing failed: {str(e)}")
