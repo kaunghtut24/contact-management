@@ -72,4 +72,4 @@ mkdir -p logs
 
 # Start the FastAPI application
 echo "🌐 Starting FastAPI server..."
-exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}
+exec uvicorn api:app --host 0.0.0.0 --port ${PORT:-8000}

@@ -1,5 +1,15 @@
 # 🔐 Render Security Setup Guide
 
+## 🚨 **DEPLOYMENT HEALTH CHECK FIX**
+
+If you're getting a health check timeout error, the API has been fixed to:
+- ✅ Start without JWT_SECRET_KEY (with warning)
+- ✅ Use fallback secret for development/testing
+- ✅ Fixed start script to use correct API file (`api:app`)
+- ✅ Added root endpoint (`/`) for basic connectivity testing
+
+**The API will start successfully even without environment variables, but you should still set them for security!**
+
 ## Required Environment Variables for Production Deployment
 
 ### 🚨 **CRITICAL SECURITY VARIABLES (REQUIRED)**

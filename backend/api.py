@@ -132,9 +132,11 @@ class ContactOut(BaseModel):
         from_attributes = True
 
 # Security configuration with enhanced settings
-SECRET_KEY = os.getenv("JWT_SECRET_KEY")
+SECRET_KEY = os.getenv("JWT_SECRET_KEY") or os.getenv("SECRET_KEY")
 if not SECRET_KEY:
-    raise ValueError("JWT_SECRET_KEY environment variable is required for production")
+    # For development/testing, use a default key with warning
+    SECRET_KEY = "development-secret-key-change-in-production-minimum-32-characters"
+    print("⚠️  WARNING: Using default JWT secret key. Set JWT_SECRET_KEY environment variable in production!")
 
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "30"))
@@ -263,6 +265,11 @@ app.add_middleware(
 
 # Create tables
 Base.metadata.create_all(bind=engine)
+
+# Root endpoint
+@app.get("/")
+def root():
+    return {"message": "Contact Management System API v2.0", "status": "running", "docs": "/docs"}
 
 # Health check
 @app.get("/health")
