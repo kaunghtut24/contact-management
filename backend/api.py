@@ -559,6 +559,24 @@ def security_info(current_user: User = Depends(require_admin)):
         ]
     }
 
+@app.get("/debug/env-check")
+def check_environment_variables():
+    """Check what environment variables are configured (temporary diagnostic endpoint)"""
+    return {
+        "admin_username_configured": bool(ADMIN_USERNAME),
+        "admin_username_value": ADMIN_USERNAME if ADMIN_USERNAME else "NOT_SET",
+        "admin_email_configured": bool(ADMIN_EMAIL),
+        "admin_email_value": ADMIN_EMAIL if ADMIN_EMAIL else "NOT_SET",
+        "admin_password_configured": bool(ADMIN_PASSWORD),
+        "jwt_secret_configured": bool(SECRET_KEY),
+        "environment_variables_status": {
+            "ADMIN_USERNAME": "SET" if ADMIN_USERNAME else "NOT_SET",
+            "ADMIN_EMAIL": "SET" if ADMIN_EMAIL else "NOT_SET",
+            "ADMIN_PASSWORD": "SET" if ADMIN_PASSWORD else "NOT_SET",
+            "JWT_SECRET_KEY": "SET" if SECRET_KEY else "NOT_SET"
+        }
+    }
+
 # Contact endpoints (all require authentication)
 @app.get("/contacts", response_model=List[ContactOut])
 def get_contacts(
