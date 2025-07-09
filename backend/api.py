@@ -304,14 +304,28 @@ app = FastAPI(
     version="2.0.0"
 )
 
-# CORS Configuration
-ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "https://contact-management-six-alpha.vercel.app,http://localhost:5173,http://localhost:3000,http://localhost:5174").split(",")
+# CORS Configuration for local development and production
+ENVIRONMENT = os.getenv("ENVIRONMENT", "development")
+
+if ENVIRONMENT == "development":
+    # Allow all origins for local development
+    ALLOWED_ORIGINS = ["*"]
+    ALLOW_CREDENTIALS = False  # Can't use credentials with wildcard origins
+else:
+    # Specific origins for production
+    ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "https://contact-management-six-alpha.vercel.app").split(",")
+    ALLOW_CREDENTIALS = True
+
+print(f"🌐 CORS Configuration:")
+print(f"   Environment: {ENVIRONMENT}")
+print(f"   Allowed Origins: {ALLOWED_ORIGINS}")
+print(f"   Allow Credentials: {ALLOW_CREDENTIALS}")
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
-    allow_credentials=True,
-    allow_methods=["*"],
+    allow_credentials=ALLOW_CREDENTIALS,
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
 
