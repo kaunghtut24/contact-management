@@ -49,6 +49,18 @@ services:
       - key: OCR_SERVICE_URL
         sync: false  # Set to your OCR service URL
 
+      # Content Intelligence Configuration
+      - key: OPENAI_API_KEY
+        sync: false  # For LLM-powered content analysis
+      - key: OPENAI_MODEL
+        value: gpt-3.5-turbo
+      - key: GROQ_API_KEY
+        sync: false  # Alternative LLM provider
+      - key: GROQ_MODEL
+        value: mixtral-8x7b-32768
+      - key: SPACY_MODEL
+        value: en_core_web_sm
+
       # OCR Configuration (using bundled tessdata)
       - key: TESSERACT_PATH
         value: /usr/bin/tesseract

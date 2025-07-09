@@ -433,6 +433,63 @@ def extract_text_with_confidence(ocr_data):
         logger.warning(f"Confidence filtering failed: {e}")
         return ''
 
+def extract_text_from_pdf(content: bytes) -> str:
+    """Extract text from PDF content"""
+    try:
+        import fitz  # PyMuPDF
+        doc = fitz.open(stream=content, filetype="pdf")
+        text = ""
+        for page in doc:
+            text += page.get_text()
+        doc.close()
+        return text
+    except Exception as e:
+        logger.error(f"PDF text extraction failed: {e}")
+        return ""
+
+def extract_text_from_docx(content: bytes) -> str:
+    """Extract text from DOCX content"""
+    try:
+        from docx import Document
+        import io
+        doc = Document(io.BytesIO(content))
+        text = ""
+        for paragraph in doc.paragraphs:
+            text += paragraph.text + "\n"
+        return text
+    except Exception as e:
+        logger.error(f"DOCX text extraction failed: {e}")
+        return ""
+
+def parse_csv_content(content: bytes) -> List[Dict[str, str]]:
+    """Parse CSV content and return list of contacts"""
+    try:
+        import csv
+        import io
+
+        content_str = content.decode('utf-8', errors='ignore')
+        csv_reader = csv.DictReader(io.StringIO(content_str))
+
+        contacts = []
+        for row in csv_reader:
+            # Map common CSV column names to our schema
+            contact = {
+                "name": row.get("name", row.get("Name", row.get("NAME", ""))),
+                "designation": row.get("designation", row.get("Designation", row.get("title", row.get("Title", "")))),
+                "company": row.get("company", row.get("Company", row.get("organization", row.get("Organization", "")))),
+                "email": row.get("email", row.get("Email", row.get("EMAIL", ""))),
+                "phone": row.get("phone", row.get("Phone", row.get("telephone", row.get("Telephone", "")))),
+                "website": row.get("website", row.get("Website", row.get("url", row.get("URL", "")))),
+                "address": row.get("address", row.get("Address", row.get("location", row.get("Location", "")))),
+                "categories": "Others"
+            }
+            contacts.append(contact)
+
+        return contacts
+    except Exception as e:
+        logger.error(f"CSV parsing failed: {e}")
+        return []
+
 def extract_contacts_advanced(text, strategy="default"):
     """Advanced contact extraction with better pattern recognition for business cards"""
     contacts = []

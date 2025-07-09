@@ -1142,8 +1142,136 @@ async def upload_file(
             "total_errors": 1
         }
 
+async def _process_with_content_intelligence(file: UploadFile, content: bytes, filename: str, db: Session):
+    """Process file using Content Intelligence Service"""
+    from app.services.content_intelligence import content_intelligence
+
+    contacts_created = 0
+    errors = []
+
+    # Determine file type
+    file_type = "unknown"
+    if filename.endswith(('.pdf', '.PDF')):
+        file_type = "pdf"
+    elif filename.endswith(('.docx', '.doc', '.DOCX', '.DOC')):
+        file_type = "document"
+    elif filename.endswith(('.png', '.jpg', '.jpeg', '.tiff', '.bmp')):
+        file_type = "image"
+    elif filename.endswith(('.txt', '.TXT')):
+        file_type = "text"
+    elif filename.endswith(('.csv', '.CSV')):
+        file_type = "csv"
+    elif filename.endswith('.vcf'):
+        file_type = "vcf"
+
+    # Extract text based on file type
+    extracted_text = ""
+
+    if file_type == "pdf":
+        from app.parsers.parse import extract_text_from_pdf
+        extracted_text = extract_text_from_pdf(content)
+    elif file_type == "document":
+        from app.parsers.parse import extract_text_from_docx
+        extracted_text = extract_text_from_docx(content)
+    elif file_type == "image":
+        # Use OCR microservice if available, otherwise local OCR
+        ocr_service_url = os.getenv("OCR_SERVICE_URL")
+        if ocr_service_url:
+            from app.services.ocr_client import ocr_client
+            ocr_result = await ocr_client.process_image(filename, content)
+            if ocr_result["success"]:
+                extracted_text = ocr_result["data"]["ocr_result"]["text"]
+            else:
+                errors.append(f"OCR processing failed: {ocr_result['error']}")
+                extracted_text = ""
+        else:
+            # Fallback to local OCR
+            from app.parsers.parse import parse_image_fast
+            try:
+                local_contacts = parse_image_fast(content)
+                # Convert to text for content intelligence
+                extracted_text = "\n".join([
+                    f"{c.get('name', '')} {c.get('designation', '')} {c.get('company', '')} "
+                    f"{c.get('email', '')} {c.get('phone', '')} {c.get('address', '')}"
+                    for c in local_contacts
+                ])
+            except Exception as e:
+                errors.append(f"Local OCR failed: {str(e)}")
+                extracted_text = ""
+    elif file_type == "text":
+        extracted_text = content.decode('utf-8', errors='ignore')
+    elif file_type == "csv":
+        # Simple CSV to text conversion
+        content_str = content.decode('utf-8', errors='ignore')
+        lines = content_str.strip().split('\n')
+        if len(lines) > 1:
+            extracted_text = "\n".join(lines[1:])  # Skip header
+    elif file_type == "vcf":
+        # VCF to text conversion
+        content_str = content.decode('utf-8', errors='ignore')
+        extracted_text = content_str.replace('BEGIN:VCARD', '').replace('END:VCARD', '')
+
+    if not extracted_text.strip():
+        raise ValueError("No text could be extracted from the file")
+
+    # Use Content Intelligence Service for analysis
+    logger.info(f"Using Content Intelligence for {file_type} file: {filename}")
+    analysis_result = await content_intelligence.analyze_content(extracted_text, file_type)
+
+    if not analysis_result["success"]:
+        raise ValueError("Content intelligence analysis failed")
+
+    # Create contacts from analysis results
+    contacts_data = analysis_result["contacts"]
+
+    for contact_data in contacts_data:
+        try:
+            # Ensure categories is a string (database expects string)
+            if isinstance(contact_data.get("categories"), list):
+                contact_data["categories"] = ",".join(contact_data["categories"])
+            elif not contact_data.get("categories"):
+                contact_data["categories"] = "Others"
+
+            # Map field names to database schema
+            db_contact_data = {
+                "name": contact_data.get("name", ""),
+                "designation": contact_data.get("designation", ""),
+                "company": contact_data.get("company", ""),
+                "email": contact_data.get("email", ""),
+                "phone": contact_data.get("phone", ""),
+                "website": contact_data.get("website", ""),
+                "address": contact_data.get("address", ""),
+                "categories": contact_data.get("categories", "Others"),
+                "notes": ""  # Add empty notes field
+            }
+
+            # Create contact
+            db_contact = Contact(**db_contact_data)
+            db.add(db_contact)
+            contacts_created += 1
+        except Exception as e:
+            errors.append(f"Error creating contact: {str(e)}")
+
+    db.commit()
+
+    return {
+        "message": f"{file_type.title()} processed with Content Intelligence successfully",
+        "filename": file.filename,
+        "file_type": file_type,
+        "contacts_created": contacts_created,
+        "errors": errors,
+        "total_errors": len(errors),
+        "analysis": {
+            "method": analysis_result["analysis"]["processing_method"],
+            "confidence": analysis_result["analysis"]["confidence_score"],
+            "entities_found": analysis_result["metadata"]["entities_found"],
+            "text_length": analysis_result["metadata"]["text_length"]
+        },
+        "content_intelligence_used": True
+    }
+
 async def _process_upload_file(file: UploadFile, db: Session):
-    """Internal function to process uploaded files"""
+    """Internal function to process uploaded files with Content Intelligence"""
     try:
         # Check file size (10MB limit)
         max_size = 10 * 1024 * 1024  # 10MB
@@ -1162,6 +1290,13 @@ async def _process_upload_file(file: UploadFile, db: Session):
         filename = file.filename.lower()
         contacts_created = 0
         errors = []
+
+        # Try Content Intelligence first for better results
+        try:
+            return await _process_with_content_intelligence(file, content, filename, db)
+        except Exception as e:
+            logger.warning(f"Content Intelligence failed: {e}, falling back to original methods")
+            # Continue with original processing methods below
 
         if filename.endswith('.csv'):
             # Process CSV file
