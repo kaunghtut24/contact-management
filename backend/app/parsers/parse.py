@@ -310,24 +310,32 @@ def parse_image(file_content):
         return []
 
 def parse_image_fast(file_content):
-    """Fast image parsing with single OCR strategy for timeout-sensitive operations"""
+    """Ultra-fast image parsing optimized for large files and timeout-sensitive operations"""
     if not OCR_AVAILABLE:
         logger.warning("OCR not available. Cannot parse image files.")
         return []
 
     try:
-        # Load and preprocess image
+        # Load image and check size
         image = Image.open(io.BytesIO(file_content))
-        logger.info(f"Processing image: {image.size} pixels, mode: {image.mode}")
+        original_size = image.size
+        file_size_mb = len(file_content) / (1024 * 1024)
+        logger.info(f"Processing image: {original_size} pixels, {file_size_mb:.1f}MB, mode: {image.mode}")
 
-        # Use only the most effective strategy: preprocessed image with PSM 6
-        try:
+        # For large files, use more aggressive preprocessing
+        if file_size_mb > 1.0:  # Files larger than 1MB
+            logger.info("Large file detected, using aggressive optimization")
             processed_image = preprocess_business_card_image(image)
-            text = pytesseract.image_to_string(processed_image, config='--psm 6 --oem 3')
+            # Use faster OCR settings for large files
+            ocr_config = '--psm 6 --oem 1'  # Use legacy OCR engine for speed
+        else:
+            # For smaller files, use standard preprocessing
+            processed_image = preprocess_business_card_image(image)
+            ocr_config = '--psm 6 --oem 3'  # Use default OCR engine
 
-            if not text.strip():
-                # Fallback to original image if preprocessing didn't work
-                text = pytesseract.image_to_string(image, config='--psm 6 --oem 3')
+        try:
+            # Single OCR attempt with optimized settings
+            text = pytesseract.image_to_string(processed_image, config=ocr_config)
 
             logger.info(f"OCR extracted {len(text)} characters")
 
@@ -348,38 +356,41 @@ def parse_image_fast(file_content):
         return []
 
 def preprocess_business_card_image(image):
-    """Fast preprocessing for business card images optimized for speed"""
+    """Ultra-fast preprocessing for business card images optimized for speed and large files"""
     try:
-        # Convert to RGB if necessary
-        if image.mode not in ['RGB', 'L']:
-            image = image.convert('RGB')
-
-        # Only resize if image is very small (skip if already decent size)
+        # For large images, resize first to reduce processing time
         width, height = image.size
-        if width < 600 or height < 400:
-            # Use a more conservative scale factor for speed
-            scale_factor = max(600/width, 400/height)
+        max_dimension = 1200  # Reduce max size for faster processing
+
+        # Resize large images first to speed up processing
+        if width > max_dimension or height > max_dimension:
+            scale_factor = min(max_dimension/width, max_dimension/height)
             new_width = int(width * scale_factor)
             new_height = int(height * scale_factor)
-            # Use NEAREST for speed instead of LANCZOS
+            # Use NEAREST for maximum speed
             image = image.resize((new_width, new_height), Image.Resampling.NEAREST)
+            logger.info(f"Resized large image from {width}x{height} to {new_width}x{new_height}")
 
-        # Convert to grayscale for better text recognition
+        # Convert to grayscale immediately for speed
         if image.mode != 'L':
             gray_image = image.convert('L')
         else:
             gray_image = image
 
-        # Light contrast enhancement only (skip sharpening for speed)
+        # Minimal processing for speed - just basic contrast
         from PIL import ImageEnhance
         enhancer = ImageEnhance.Contrast(gray_image)
-        enhanced_image = enhancer.enhance(1.2)  # Reduced from 1.5 for speed
+        enhanced_image = enhancer.enhance(1.1)  # Very light enhancement
 
         return enhanced_image
 
     except Exception as e:
         logger.warning(f"Image preprocessing failed: {e}, using original image")
-        return image
+        # Return grayscale version of original if preprocessing fails
+        try:
+            return image.convert('L') if image.mode != 'L' else image
+        except:
+            return image
 
 def extract_text_with_confidence(ocr_data):
     """Extract text from OCR data with confidence filtering"""

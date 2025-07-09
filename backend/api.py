@@ -1090,15 +1090,29 @@ async def upload_file(
     import asyncio
 
     try:
+        # Calculate overall timeout based on file size
+        content = await file.read()
+        await file.seek(0)  # Reset file pointer
+        file_size_mb = len(content) / (1024 * 1024)
+
+        if file_size_mb > 1.5:
+            overall_timeout = 45.0  # 45 seconds for files > 1.5MB
+        elif file_size_mb > 1.0:
+            overall_timeout = 35.0  # 35 seconds for files > 1MB
+        else:
+            overall_timeout = 30.0  # 30 seconds for smaller files
+
+        logger.info(f"Processing {file_size_mb:.1f}MB file with {overall_timeout}s overall timeout")
+
         # Add overall timeout for the entire upload process
-        return await asyncio.wait_for(_process_upload_file(file, db), timeout=30.0)
+        return await asyncio.wait_for(_process_upload_file(file, db), timeout=overall_timeout)
     except asyncio.TimeoutError:
         logger.error(f"Upload processing timed out for file: {file.filename}")
         return {
             "message": "File upload timed out",
             "filename": file.filename,
             "contacts_created": 0,
-            "errors": ["Upload processing timed out after 30 seconds. Please try with a smaller file."],
+            "errors": [f"Upload processing timed out after {overall_timeout} seconds. Please try with a smaller file."],
             "total_errors": 1,
             "timeout": True
         }
@@ -1212,12 +1226,22 @@ async def _process_upload_file(file: UploadFile, db: Session):
                     from app.parsers.parse import parse_image
                     parse_func = parse_image
 
-                # Use a thread pool to run OCR with timeout
+                # Calculate timeout based on file size
+                file_size_mb = len(content) / (1024 * 1024)
+                if file_size_mb > 1.5:
+                    ocr_timeout = 35  # 35 seconds for files > 1.5MB
+                elif file_size_mb > 1.0:
+                    ocr_timeout = 25  # 25 seconds for files > 1MB
+                else:
+                    ocr_timeout = 20  # 20 seconds for smaller files
+
+                logger.info(f"Processing {file_size_mb:.1f}MB image with {ocr_timeout}s timeout")
+
+                # Use a thread pool to run OCR with dynamic timeout
                 with ThreadPoolExecutor(max_workers=1) as executor:
                     try:
-                        # Run OCR with 20-second timeout (leaving 10 seconds for other operations)
                         future = executor.submit(parse_func, content)
-                        contacts_data = future.result(timeout=20)
+                        contacts_data = future.result(timeout=ocr_timeout)
 
                         for contact_data in contacts_data:
                             try:
@@ -1240,8 +1264,8 @@ async def _process_upload_file(file: UploadFile, db: Session):
                         }
 
                     except FutureTimeoutError:
-                        logger.warning(f"OCR processing timed out for file: {file.filename}")
-                        errors.append("OCR processing timed out after 20 seconds. Please try with a smaller or clearer image.")
+                        logger.warning(f"OCR processing timed out for file: {file.filename} ({file_size_mb:.1f}MB) after {ocr_timeout}s")
+                        errors.append(f"OCR processing timed out after {ocr_timeout} seconds. For {file_size_mb:.1f}MB files, try reducing image size or using a clearer image.")
                         return {
                             "message": "Image uploaded but OCR processing timed out",
                             "filename": file.filename,
