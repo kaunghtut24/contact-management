@@ -38,11 +38,37 @@ function UploadPage() {
     }
 
     setUploading(true);
-    setMessage('');
+
+    // Show different messages based on file type
+    const fileExtension = file.name.split('.').pop().toLowerCase();
+    const isImageFile = ['jpg', 'jpeg', 'png', 'tiff', 'bmp'].includes(fileExtension);
+
+    if (isImageFile) {
+      setMessage('Processing image with OCR... This may take up to 60 seconds.');
+    } else {
+      setMessage('Uploading and processing file...');
+    }
 
     try {
-      await contactsApi.upload(file);
-      setMessage('File uploaded successfully');
+      const response = await contactsApi.upload(file);
+
+      // Show detailed success message
+      const data = response.data;
+      let successMessage = `File uploaded successfully! `;
+
+      if (data.contacts_created > 0) {
+        successMessage += `${data.contacts_created} contacts created.`;
+      }
+
+      if (data.errors && data.errors.length > 0) {
+        successMessage += ` ${data.errors.length} errors occurred.`;
+      }
+
+      if (data.ocr_used) {
+        successMessage += ` (OCR processing completed)`;
+      }
+
+      setMessage(successMessage);
       setFile(null);
       // Reset file input
       document.querySelector('input[type="file"]').value = '';
@@ -95,9 +121,15 @@ function UploadPage() {
           uploading || !file
             ? 'bg-gray-400 cursor-not-allowed'
             : 'bg-blue-500 hover:bg-blue-600'
-        } text-white`}
+        } text-white flex items-center justify-center`}
       >
-        {uploading ? 'Uploading...' : 'Upload'}
+        {uploading && (
+          <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+          </svg>
+        )}
+        {uploading ? 'Processing...' : 'Upload'}
       </button>
       {message && (
         <div className={`mt-4 p-2 rounded ${

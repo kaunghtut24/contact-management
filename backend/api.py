@@ -1203,7 +1203,6 @@ async def _process_upload_file(file: UploadFile, db: Session):
             try:
                 import asyncio
                 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
-
                 # Import the fast parsing function
                 try:
                     from app.parsers.parse import parse_image_fast
