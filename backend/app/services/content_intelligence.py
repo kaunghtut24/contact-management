@@ -367,14 +367,28 @@ class ContentIntelligenceService:
             logger.debug(f"🤖 API Base URL: {getattr(client_config['client'], 'base_url', 'default')}")
 
             try:
-                response = await asyncio.to_thread(
-                    client_config["client"].chat.completions.create,
-                    model=client_config["model"],
-                    messages=[{"role": "user", "content": prompt}],
-                    max_tokens=2000,
-                    temperature=0.1
-                )
-                logger.info(f"✅ API call successful to {client_name}")
+                logger.info(f"🚀 Making API call to {client_name}...")
+
+                # Try direct call first (without asyncio.to_thread)
+                try:
+                    response = client_config["client"].chat.completions.create(
+                        model=client_config["model"],
+                        messages=[{"role": "user", "content": prompt}],
+                        max_tokens=2000,
+                        temperature=0.1
+                    )
+                    logger.info(f"✅ Direct API call successful to {client_name}")
+                except Exception as direct_error:
+                    logger.warning(f"⚠️ Direct call failed, trying with asyncio.to_thread: {direct_error}")
+                    response = await asyncio.to_thread(
+                        client_config["client"].chat.completions.create,
+                        model=client_config["model"],
+                        messages=[{"role": "user", "content": prompt}],
+                        max_tokens=2000,
+                        temperature=0.1
+                    )
+                    logger.info(f"✅ Async API call successful to {client_name}")
+
             except Exception as api_error:
                 logger.error(f"❌ API call failed to {client_name}: {api_error}")
                 raise
@@ -391,15 +405,23 @@ class ContentIntelligenceService:
 
             result_text = choice.message.content
             logger.info(f"📝 LLM response received, length: {len(result_text) if result_text else 0}")
-            logger.debug(f"📝 Raw LLM response: {repr(result_text)}")
+            logger.info(f"📝 Raw LLM response: {repr(result_text)}")
+            logger.info(f"📝 Response type: {type(result_text)}")
+
+            # Detailed response debugging
+            logger.info(f"🔍 Full response object: {response}")
+            logger.info(f"🔍 Response choices count: {len(response.choices) if response.choices else 0}")
+            logger.info(f"🔍 Choice finish_reason: {getattr(choice, 'finish_reason', 'unknown')}")
+            logger.info(f"🔍 Message role: {getattr(choice.message, 'role', 'unknown')}")
 
             # Check for empty or None response
-            if not result_text or not result_text.strip():
-                logger.warning(f"LLM ({client_name}) returned empty/null response")
-                logger.warning(f"Response object: {response}")
-                logger.warning(f"Choice object: {choice}")
-                logger.warning(f"Message object: {choice.message}")
-                raise ValueError("Empty response from LLM")
+            if result_text is None:
+                logger.error(f"❌ LLM ({client_name}) returned None content")
+                raise ValueError("None response from LLM")
+            elif not result_text.strip():
+                logger.error(f"❌ LLM ({client_name}) returned empty string")
+                logger.error(f"🔍 Exact content: {repr(result_text)}")
+                raise ValueError("Empty string response from LLM")
 
             result_text = result_text.strip()
             logger.debug(f"LLM ({client_name}) response: {result_text[:200]}...")
@@ -408,8 +430,17 @@ class ContentIntelligenceService:
             try:
                 # Clean the response text
                 cleaned_text = result_text.strip()
+                logger.info(f"🧹 Cleaned text for JSON parsing: {repr(cleaned_text[:100])}...")
+
+                # Handle potential encoding issues
+                if isinstance(cleaned_text, bytes):
+                    cleaned_text = cleaned_text.decode('utf-8')
+
+                # Remove any BOM or invisible characters
+                cleaned_text = cleaned_text.lstrip('\ufeff').strip()
 
                 # Try direct JSON parsing first
+                logger.info(f"🔍 Attempting JSON parse of: {cleaned_text[:200]}...")
                 contacts = json.loads(cleaned_text)
                 return {
                     "contacts": contacts,

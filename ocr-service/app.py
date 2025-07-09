@@ -298,9 +298,29 @@ class LLMProcessor:
             else:
                 raise ValueError(f"Unknown provider type: {provider_config['type']}")
 
-            contacts = json.loads(result)
-            logger.info(f"LLM ({provider_name}) extracted {len(contacts)} contacts")
-            return contacts
+            # Enhanced JSON parsing with error handling
+            try:
+                contacts = json.loads(result)
+                logger.info(f"LLM ({provider_name}) extracted {len(contacts)} contacts")
+                return contacts
+            except json.JSONDecodeError as json_error:
+                logger.warning(f"JSON parsing failed for LLM response: {json_error}")
+                logger.warning(f"Raw LLM response: {repr(result)}")
+
+                # Try to extract JSON from response
+                import re
+                json_match = re.search(r'\[.*\]', result, re.DOTALL)
+                if json_match:
+                    try:
+                        contacts = json.loads(json_match.group())
+                        logger.info(f"Extracted JSON successfully: {len(contacts)} contacts")
+                        return contacts
+                    except json.JSONDecodeError:
+                        logger.warning("Extracted JSON also failed to parse")
+
+                # Fall back to rule-based extraction
+                logger.warning(f"LLM JSON parsing failed, falling back to rule-based")
+                return self.rule_based_extraction(text)
 
         except Exception as e:
             logger.warning(f"LLM extraction failed with {provider_name}: {e}, falling back to rule-based")
@@ -330,14 +350,40 @@ JSON Response:"""
 
     async def _extract_with_openai_api(self, provider_config: Dict, prompt: str) -> str:
         """Extract using OpenAI API or compatible"""
-        response = await asyncio.to_thread(
-            provider_config["client"].chat.completions.create,
-            model=provider_config["model"],
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=1500,
-            temperature=0.1
-        )
-        return response.choices[0].message.content.strip()
+        try:
+            response = await asyncio.to_thread(
+                provider_config["client"].chat.completions.create,
+                model=provider_config["model"],
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=1500,
+                temperature=0.1
+            )
+
+            # Enhanced response validation
+            if not response or not response.choices:
+                logger.error("LLM returned invalid response structure")
+                raise ValueError("Invalid response structure from LLM")
+
+            choice = response.choices[0]
+            if not choice or not choice.message:
+                logger.error("LLM returned invalid choice structure")
+                raise ValueError("Invalid choice structure from LLM")
+
+            content = choice.message.content
+            logger.info(f"LLM response length: {len(content) if content else 0}")
+            logger.debug(f"LLM response: {repr(content)}")
+
+            if not content or not content.strip():
+                logger.error("LLM returned empty content")
+                # Return a basic JSON structure instead of failing
+                return '[{"name":"","designation":"","company":"","email":"","phone":"","website":"","address":"","categories":["Others"]}]'
+
+            return content.strip()
+
+        except Exception as e:
+            logger.error(f"LLM API call failed: {e}")
+            # Return a basic JSON structure for fallback
+            return '[{"name":"","designation":"","company":"","email":"","phone":"","website":"","address":"","categories":["Others"]}]'
 
     async def _extract_with_anthropic(self, provider_config: Dict, prompt: str) -> str:
         """Extract using Anthropic Claude"""
