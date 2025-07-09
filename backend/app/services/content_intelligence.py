@@ -39,13 +39,15 @@ class ContentIntelligenceService:
         self.spacy_model = None
         self.matcher = None
         self.llm_clients = {}
+        self.providers = {}  # Alias for compatibility
+        self.default_provider = None
         self.business_categories = [
-            "Government", "Embassy", "Consulate", "High Commissioner", 
-            "Deputy High Commissioner", "Associations", "Exporter", "Importer", 
-            "Logistics", "Event management", "Consultancy", "Manufacturer", 
+            "Government", "Embassy", "Consulate", "High Commissioner",
+            "Deputy High Commissioner", "Associations", "Exporter", "Importer",
+            "Logistics", "Event management", "Consultancy", "Manufacturer",
             "Distributors", "Producers", "Others"
         ]
-        
+
         self._initialize_spacy()
         self._initialize_llm_clients()
     
@@ -108,6 +110,9 @@ class ContentIntelligenceService:
                 "model": os.getenv("OPENAI_MODEL", "gpt-3.5-turbo"),
                 "type": "openai"
             }
+            self.providers["openai"] = self.llm_clients["openai"]  # Alias
+            if not self.default_provider:
+                self.default_provider = "openai"
             logger.info("✅ OpenAI client initialized")
         
         # Add other providers (Groq, Anthropic, etc.)
@@ -115,16 +120,23 @@ class ContentIntelligenceService:
         if groq_key and LLM_AVAILABLE:
             self.llm_clients["groq"] = {
                 "client": openai.OpenAI(
-                    api_key=groq_key, 
+                    api_key=groq_key,
                     base_url="https://api.groq.com/openai/v1"
                 ),
                 "model": os.getenv("GROQ_MODEL", "mixtral-8x7b-32768"),
                 "type": "openai_compatible"
             }
+            self.providers["groq"] = self.llm_clients["groq"]  # Alias
+            if not self.default_provider:
+                self.default_provider = "groq"
             logger.info("✅ Groq client initialized")
         
         if not self.llm_clients:
             logger.warning("⚠️ No LLM clients configured")
+            self.default_provider = None
+        else:
+            logger.info(f"🤖 Default LLM provider: {self.default_provider}")
+            logger.info(f"📊 Available providers: {list(self.providers.keys())}")
     
     async def analyze_content(self, text: str, file_type: str = "unknown") -> Dict[str, Any]:
         """
@@ -201,7 +213,7 @@ class ContentIntelligenceService:
             
             # Extract emails and phones with regex (more reliable)
             email_pattern = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'
-            phone_pattern = r'[\+]?[1-9]?[\d\s\-\(\)]{8,15}'
+            phone_pattern = r'[\+]?[1-9][\d\s\-\(\)]{7,14}'  # More precise phone pattern
             
             for match in re.finditer(email_pattern, text, re.IGNORECASE):
                 entities["EMAIL"].append({
@@ -212,12 +224,14 @@ class ContentIntelligenceService:
                 })
             
             for match in re.finditer(phone_pattern, text):
-                entities["PHONE"].append({
-                    "text": match.group(),
-                    "start": match.start(),
-                    "end": match.end(),
-                    "confidence": 0.7
-                })
+                phone_text = match.group().strip()
+                if len(phone_text) >= 8:  # Ensure minimum phone length
+                    entities["PHONE"].append({
+                        "text": phone_text,
+                        "start": match.start(),
+                        "end": match.end(),
+                        "confidence": 0.7
+                    })
             
             return {
                 "entities": entities,
@@ -252,30 +266,51 @@ class ContentIntelligenceService:
             
             result_text = response.choices[0].message.content.strip()
             
-            # Parse JSON response
+            # Parse JSON response with improved error handling
             try:
-                contacts = json.loads(result_text)
+                # Clean the response text
+                cleaned_text = result_text.strip()
+
+                # Try direct JSON parsing first
+                contacts = json.loads(cleaned_text)
                 return {
                     "contacts": contacts,
                     "method": f"llm_{client_name}",
                     "model": client_config["model"]
                 }
             except json.JSONDecodeError:
-                # Try to extract JSON from response
-                json_match = re.search(r'\[.*\]', result_text, re.DOTALL)
-                if json_match:
-                    contacts = json.loads(json_match.group())
-                    return {
-                        "contacts": contacts,
-                        "method": f"llm_{client_name}_extracted",
-                        "model": client_config["model"]
-                    }
-                else:
-                    raise ValueError("No valid JSON found in LLM response")
+                logger.warning(f"Direct JSON parsing failed, trying extraction. Response: {result_text[:200]}...")
+
+                # Try to extract JSON array from response
+                json_patterns = [
+                    r'\[[\s\S]*?\]',  # Match array with any content
+                    r'```json\s*(\[[\s\S]*?\])\s*```',  # Match JSON in code blocks
+                    r'```\s*(\[[\s\S]*?\])\s*```',  # Match array in any code blocks
+                ]
+
+                for pattern in json_patterns:
+                    json_match = re.search(pattern, result_text, re.DOTALL)
+                    if json_match:
+                        try:
+                            json_text = json_match.group(1) if json_match.groups() else json_match.group(0)
+                            contacts = json.loads(json_text)
+                            logger.info(f"Successfully extracted JSON using pattern: {pattern}")
+                            return {
+                                "contacts": contacts,
+                                "method": f"llm_{client_name}_extracted",
+                                "model": client_config["model"]
+                            }
+                        except json.JSONDecodeError:
+                            continue
+
+                # If all JSON extraction fails, log the response and fall back
+                logger.warning(f"All JSON extraction failed. Full response: {result_text}")
+                raise ValueError(f"No valid JSON found in LLM response: {result_text[:100]}...")
             
         except Exception as e:
-            logger.warning(f"LLM extraction failed: {e}")
-            return {"contacts": [], "method": "llm_failed", "error": str(e)}
+            logger.error(f"LLM extraction failed with {client_name}: {e}")
+            logger.debug(f"LLM prompt was: {prompt[:200]}...")
+            return {"contacts": [], "method": "llm_failed", "error": str(e), "client": client_name}
     
     def _create_enhanced_prompt(self, text: str, file_type: str, spacy_results: Dict) -> str:
         """Create enhanced prompt using SpaCy context"""
@@ -296,25 +331,25 @@ SpaCy Analysis Context:
 - Phones found: {phones}
 """
         
-        return f"""
-You are an expert contact information extractor. Extract structured contact information from the following text.
+        return f"""You are an expert contact information extractor. Extract structured contact information from the following text and return ONLY a valid JSON array.
 
 {context}
 
-IMPORTANT INSTRUCTIONS:
-1. Use the SpaCy analysis context above to guide your extraction
-2. Each contact must have ALL these fields: name, designation, company, email, phone, website, address, categories
-3. Categories must be from this exact list: {self.business_categories}
-4. If a field is not found, use empty string ""
-5. Categories should be an array of strings
-6. Return ONLY valid JSON array, no other text
-7. Validate email addresses and phone numbers
-8. Clean and format data consistently
+CRITICAL REQUIREMENTS:
+1. Return ONLY a JSON array, no explanations or other text
+2. Each contact must have these exact fields: name, designation, company, email, phone, website, address, categories
+3. Categories must be from this list: {self.business_categories}
+4. Use empty string "" for missing fields
+5. Categories must be an array of strings
+6. Ensure valid JSON format
+
+Example format:
+[{{"name": "John Doe", "designation": "Manager", "company": "ABC Corp", "email": "john@abc.com", "phone": "+1234567890", "website": "", "address": "123 Main St", "categories": ["Others"]}}]
 
 Text to analyze:
 {text}
 
-JSON Response:"""
+Return only the JSON array:"""
 
     def _combine_results(self, spacy_results: Dict, llm_results: Dict, original_text: str) -> Dict[str, Any]:
         """Combine SpaCy and LLM results for optimal accuracy"""
