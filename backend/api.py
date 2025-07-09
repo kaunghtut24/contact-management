@@ -1029,15 +1029,53 @@ async def upload_file(
 
             db.commit()
 
+        elif filename.endswith(('.png', '.jpg', '.jpeg', '.tiff', '.bmp')):
+            # Process image files with OCR
+            try:
+                from app.parsers.parse import parse_image
+                contacts_data = parse_image(content)
+
+                for contact_data in contacts_data:
+                    try:
+                        # Create contact
+                        db_contact = Contact(**contact_data)
+                        db.add(db_contact)
+                        contacts_created += 1
+                    except Exception as e:
+                        errors.append(f"Error creating contact from OCR: {str(e)}")
+
+                db.commit()
+
+                return {
+                    "message": "Image processed with OCR successfully",
+                    "filename": file.filename,
+                    "contacts_created": contacts_created,
+                    "errors": errors,
+                    "total_errors": len(errors),
+                    "ocr_used": True
+                }
+
+            except Exception as e:
+                errors.append(f"OCR processing failed: {str(e)}")
+                return {
+                    "message": "Image uploaded but OCR processing failed",
+                    "filename": file.filename,
+                    "size": len(content),
+                    "contacts_created": 0,
+                    "errors": errors,
+                    "total_errors": len(errors),
+                    "ocr_used": False
+                }
+
         else:
-            # For other file types (images, etc.), return a message
+            # For other file types
             return {
                 "message": "File uploaded successfully",
                 "filename": file.filename,
                 "size": len(content),
-                "note": "OCR processing for images is available but requires additional setup",
+                "note": "File type not supported for automatic processing",
                 "contacts_created": 0,
-                "errors": ["OCR processing not implemented in this endpoint"]
+                "errors": ["Unsupported file type for contact extraction"]
             }
 
         return {
