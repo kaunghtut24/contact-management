@@ -288,6 +288,7 @@ class LLMProcessor:
 
         try:
             prompt = self._create_extraction_prompt(text)
+            logger.info(f"LLM prompt: {prompt[:500]}")
 
             if provider_config["type"] == "openai" or provider_config["type"] == "openai_compatible":
                 result = await self._extract_with_openai_api(provider_config, prompt)
@@ -298,10 +299,12 @@ class LLMProcessor:
             else:
                 raise ValueError(f"Unknown provider type: {provider_config['type']}")
 
+            logger.info(f"LLM raw response: {result[:500]}")
+
             # Enhanced JSON parsing with error handling
             try:
                 contacts = json.loads(result)
-                logger.info(f"LLM ({provider_name}) extracted {len(contacts)} contacts")
+                logger.info(f"LLM parsed contacts: {contacts}")
                 return contacts
             except json.JSONDecodeError as json_error:
                 logger.warning(f"JSON parsing failed for LLM response: {json_error}")
@@ -327,30 +330,29 @@ class LLMProcessor:
             return self.rule_based_extraction(text)
 
     def _create_extraction_prompt(self, text: str) -> str:
-        """Create extraction prompt for contact information"""
+        """Create concise extraction prompt for contact information"""
         return f"""
-Extract contact information from the following text and return as JSON array.
-Each contact should have these fields: name, designation, company, email, phone, website, address, categories, notes.
-
-Categories should be one or more of: Government, Embassy, Consulate, High Commissioner, Deputy High Commissioner,
-Associations, Exporter, Importer, Logistics, Event management, Consultancy, Manufacturer, Distributors, Producers, Others.
-
-Rules:
-1. Return only valid JSON array, no other text
-2. If no clear contacts found, return empty array []
-3. Ensure all fields are strings (use empty string "" if not found)
-4. Categories should be array of strings
-5. Clean and format phone numbers consistently
-6. Validate email addresses
-7. Notes should be SHORT (max 80 chars) with only key info: qualifications, years experience, or main specialization
-
-Example with concise notes:
-[{{"name":"John Doe","designation":"Manager","company":"ABC Corp","email":"john@abc.com","phone":"+1234567890","website":"","address":"123 Main St","categories":["Others"],"notes":"MBA, 10+ years exp, speaks Spanish"}}]
-
-Text to process:
+Extract all contact information from the following text and return ONLY a valid JSON array.
+Each contact should have: name, designation, company, email, phone, website, address, categories, notes.
+If a field is missing, use an empty string. If no contacts, return [].
+Example:
+[
+  {{
+    "name": "Jane Smith",
+    "designation": "Manager",
+    "company": "Acme Corp",
+    "email": "jane.smith@acme.com",
+    "phone": "+1234567890",
+    "website": "www.acme.com",
+    "address": "123 Main St, City",
+    "categories": ["Others"],
+    "notes": "MBA, 10+ years exp"
+  }}
+]
+Text:
 {text}
-
-JSON Response:"""
+JSON:
+"""
 
     async def _extract_with_openai_api(self, provider_config: Dict, prompt: str) -> str:
         """Extract using OpenAI API or compatible"""
@@ -581,7 +583,7 @@ async def health_check():
 @app.post("/process-sync")
 async def process_image_sync(file: UploadFile = File(...)):
     """Synchronous image processing (for small files)"""
-    if not file.filename.lower().endswith(('.png', '.jpg', '.jpeg', '.tiff', '.bmp')):
+    if not file.filename.lower().endswith((".png", ".jpg", ".jpeg", ".tiff", ".bmp")):
         raise HTTPException(status_code=400, detail="Unsupported file type")
 
     if not OCR_AVAILABLE or ocr_processor is None:
@@ -600,6 +602,7 @@ async def process_image_sync(file: UploadFile = File(...)):
 
         # Process with OCR
         ocr_result = await ocr_processor.process_image(content, timeout=15)
+        logger.info(f"OCR extracted text: {ocr_result.get('text', '')[:500]}")
 
         if not ocr_result["success"]:
             return JSONResponse(
@@ -613,6 +616,7 @@ async def process_image_sync(file: UploadFile = File(...)):
 
         # Extract contacts using LLM
         contacts = await llm_processor.extract_contacts(ocr_result["text"])
+        logger.info(f"LLM extracted contacts: {contacts}")
 
         return {
             "success": True,

@@ -10,8 +10,9 @@ from io import StringIO
 from app.models import Contact, Base
 from app.schemas.contact import ContactCreate, ContactUpdate, ContactOut
 from app.database import SessionLocal, engine
-from app.parsers.parse import parse_pdf, parse_docx, parse_image
+from app.parsers.parse import parse_pdf, parse_docx, parse_image, extract_contacts_basic_rules
 from app.utils.nlp import categorize_contact
+from app.parsers.nlp_parser import extract_contacts_nlp
 # from app.ml.categorizer import categorize_contact_ml
 # from app.api.categories import router as categories_router
 # from app.api.search import router as search_router
@@ -27,6 +28,9 @@ from app.exceptions import (
 from app.validators import validate_file_size, validate_file_type
 from app.logging_config import setup_logging
 from app.api.auth import router as auth_router
+import httpx
+import traceback
+from pydantic import BaseModel
 
 # Setup logging
 logger = setup_logging()
@@ -193,10 +197,12 @@ def update_contact(contact_id: int, contact: ContactUpdate, db: Session = Depend
     db.refresh(db_contact)
     return db_contact
 
-# Batch delete contacts (must come before single delete route)
+class BatchDeleteRequest(BaseModel):
+    contact_ids: List[int]
+
 @app.delete("/contacts/batch")
-def batch_delete_contacts(contact_ids: List[int], db: Session = Depends(get_db)):
-    """Delete multiple contacts by their IDs"""
+def batch_delete_contacts(request: BatchDeleteRequest, db: Session = Depends(get_db)):
+    contact_ids = request.contact_ids
     deleted_count = 0
     failed_ids = []
 
@@ -227,9 +233,23 @@ def delete_contact(contact_id: int, db: Session = Depends(get_db)):
     db.commit()
     return {"detail": "Contact deleted"}
 
-# Upload and parse file
+async def call_ocr_service(file: UploadFile, file_content: bytes):
+    OCR_SERVICE_URL = "http://localhost:8001/process-sync"
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:  # 30 seconds timeout
+            files = {"file": (file.filename, file_content, file.content_type)}
+            response = await client.post(OCR_SERVICE_URL, files=files)
+            response.raise_for_status()
+            return response.json()
+    except httpx.ReadTimeout:
+        logger.error("OCR service timed out after 30 seconds.")
+        raise FileProcessingError(file.filename, "OCR service timed out. Please try again or use a smaller file.")
+    except Exception as e:
+        logger.error(f"Error calling OCR service: {e}")
+        raise FileProcessingError(file.filename, str(e))
+
 @app.post("/upload")
-def upload_file(file: UploadFile = File(...), db: Session = Depends(get_db)):
+async def upload_file(file: UploadFile = File(...), db: Session = Depends(get_db)):
     logger.info(f"Processing file upload: {file.filename}")
 
     # Validate file
@@ -237,7 +257,7 @@ def upload_file(file: UploadFile = File(...), db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="No file provided")
 
     ext = validate_file_type(file.filename)
-    file_content = file.file.read()
+    file_content = await file.read()
     validate_file_size(len(file_content), settings.MAX_FILE_SIZE)
     file.file.seek(0)
 
@@ -297,7 +317,13 @@ def upload_file(file: UploadFile = File(...), db: Session = Depends(get_db)):
         elif ext in ["vcf", "vcard"]:
             contacts = parse_vcf(file_content)
         elif ext in ["jpg", "jpeg", "png"]:
-            contacts = parse_image(file_content)
+            # Call OCR microservice
+            ocr_result = await call_ocr_service(file, file_content)
+            text = ocr_result.get("text", "")
+            contacts = extract_contacts_basic_rules(text)
+            # Improved fallback: use NLP parser if no contacts or all are blank
+            if not contacts or all(is_blank_contact(c) for c in contacts):
+                contacts = extract_contacts_nlp(text)
         else:
             raise FileProcessingError(file.filename, "Unsupported file type")
     except FileProcessingError:
@@ -305,9 +331,17 @@ def upload_file(file: UploadFile = File(...), db: Session = Depends(get_db)):
     except ValidationError:
         raise
     except Exception as e:
+        logger.error(f"Exception during file processing: {traceback.format_exc()}")
         raise FileProcessingError(file.filename, str(e))
 
     for c in contacts:
+        # Fix: Convert 'categories' (list) to 'category' (string) if present
+        if "categories" in c:
+            if isinstance(c["categories"], list) and c["categories"]:
+                c["category"] = c["categories"][0]
+            elif isinstance(c["categories"], str):
+                c["category"] = c["categories"]
+            del c["categories"]
         c["category"] = categorize_contact(c)
         db.add(Contact(**c))
     db.commit()
@@ -376,3 +410,6 @@ def batch_export_contacts(contact_ids: List[int], db: Session = Depends(get_db))
     response = StreamingResponse(si, media_type="text/csv")
     response.headers["Content-Disposition"] = f"attachment; filename=selected_contacts_{len(contacts)}.csv"
     return response
+
+def is_blank_contact(contact):
+    return not any([contact.get("name"), contact.get("email"), contact.get("phone")])
