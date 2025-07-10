@@ -8,9 +8,9 @@ import io
 import csv
 from io import StringIO
 from app.models import Contact, Base
-from app.schemas import ContactCreate, ContactUpdate, ContactOut
+from app.schemas.contact import ContactCreate, ContactUpdate, ContactOut
 from app.database import SessionLocal, engine
-from app.parsers.parse import parse_pdf, parse_docx, parse_txt, parse_image, parse_vcf
+from app.parsers.parse import parse_pdf, parse_docx, parse_image
 from app.utils.nlp import categorize_contact
 # from app.ml.categorizer import categorize_contact_ml
 # from app.api.categories import router as categories_router
@@ -26,6 +26,7 @@ from app.exceptions import (
 )
 from app.validators import validate_file_size, validate_file_type
 from app.logging_config import setup_logging
+from app.api.auth import router as auth_router
 
 # Setup logging
 logger = setup_logging()
@@ -37,6 +38,7 @@ app = FastAPI()
 # Include routers (temporarily disabled)
 # app.include_router(categories_router, prefix="/api", tags=["categories"])
 # app.include_router(search_router, prefix="/api", tags=["search"])
+app.include_router(auth_router)
 
 # Add exception handlers
 app.add_exception_handler(ContactNotFoundError, contact_not_found_handler)

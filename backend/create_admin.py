@@ -4,12 +4,12 @@ import sys
 from sqlalchemy.orm import Session
 try:
     from app.database import SessionLocal
-    from app.models.user import User, UserRole
+    from app.models import User, UserRole
     from app.auth.security import get_password_hash
 except ImportError:
     sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '.')))
     from app.database import SessionLocal
-    from app.models.user import User, UserRole
+    from app.models import User, UserRole
     from app.auth.security import get_password_hash
 
 ADMIN_USERNAME = os.getenv('ADMIN_USERNAME', 'admin')

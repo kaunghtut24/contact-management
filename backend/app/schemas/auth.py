@@ -1,7 +1,7 @@
 from pydantic import BaseModel, EmailStr
 from typing import Optional
 from datetime import datetime
-from ..models.user import UserRole
+from ..models import UserRole
 
 # Token schemas
 class Token(BaseModel):
@@ -36,6 +36,19 @@ class UserInDB(UserBase):
     created_at: datetime
     last_login: Optional[datetime] = None
     
+    class Config:
+        from_attributes = True
+
+class UserOut(BaseModel):
+    id: int
+    username: str
+    email: EmailStr
+    full_name: Optional[str] = None
+    role: UserRole
+    is_active: bool
+    is_verified: bool
+    created_at: datetime
+
     class Config:
         from_attributes = True
 

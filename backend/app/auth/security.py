@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 import os
 
 from ..database import get_db
-from ..models.user import User, UserRole
+from ..models import User, UserRole
 from ..schemas.auth import TokenData
 
 # Security configuration
